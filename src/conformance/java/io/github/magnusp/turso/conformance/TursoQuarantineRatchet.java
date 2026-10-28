@@ -14,7 +14,7 @@ import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
 
 /**
- * Records what every quarantined xerial method did in the unfiltered Turso run.
+ * Records what every quarantined reference-test method did in the unfiltered Turso run.
  *
  * <p>The report is written only by the conformance run with the filter off
  * ({@code -Dconformance.quarantine.enabled=false}), because that is the run where the quarantined

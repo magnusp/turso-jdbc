@@ -32,7 +32,7 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - name: Verify the pinned upstream test tree
+      - name: Verify the exported reference test tree
         run: tools/export-upstream --verify
       - name: Self-test the upstream export verifier
         run: tools/export-upstream --self-test
@@ -56,7 +56,7 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - name: Verify the pinned upstream test tree
+      - name: Verify the exported reference test tree
         run: tools/export-upstream --verify
       - run: mvn -B verify -Dconformance.quarantine.enabled=false -Dmaven.test.failure.ignore=true
       - name: Fail when a quarantined method no longer fails
