@@ -5,6 +5,12 @@
   ],
   "packageRules": [
     {
+      "description": "Runner images are pinned for the glibc 2.35 compatibility baseline; update them manually",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["github-runner"],
+      "enabled": false
+    },
+    {
       "description": "Group all GitHub Actions updates into one PR",
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
