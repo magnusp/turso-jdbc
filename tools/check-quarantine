@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: check-quarantine [--file FILE] [--self-test]
+
+Fail when a quarantined xerial conformance method no longer fails.
+
+The report comes from TursoQuarantineRatchet in a conformance run with the
+quarantine filter off:
+
+  mvn -B verify -Dconformance.quarantine.enabled=false -Dmaven.test.failure.ignore=true
+
+That run writes one row per TursoQuarantine entry. Every row must be
+"failed". A "passed" row means the entry can be removed, an "aborted" row
+means the method ran but no longer fails, and a "not-run" row means the
+entry no longer matches a test that ran. All three are failures, so an
+entry cannot disappear silently.
+
+Options:
+  --file FILE     Read FILE instead of target/quarantine-ratchet.tsv.
+  --self-test     Exercise the checks on temporary fixtures.
+  -h, --help      Show this help.
+
+Exit codes:
+  0  every quarantined entry still fails
+  1  a quarantined entry passed, aborted, or did not run
+  2  the report is missing or unusable
+EOF
+}
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+unknown_argument() {
+    echo "error: $*" >&2
+    usage >&2
+    exit 2
+}
+
+report_hint() {
+    cat >&2 <<'EOF'
+Run the unfiltered conformance suite first:
+  mvn -B verify -Dconformance.quarantine.enabled=false -Dmaven.test.failure.ignore=true
+
+The report is deleted when any test plan starts, so run this right after it.
+EOF
+}
+
+missing_report() {
+    echo "error: quarantine ratchet report not found: $1" >&2
+    report_hint
+    exit 2
+}
+
+unusable() {
+    local file=$1
+    shift
+    echo "error: unusable quarantine ratchet report: $file" >&2
+    local line
+    for line in "$@"; do
+        echo "  $line" >&2
+    done
+    report_hint
+    exit 2
+}
+
+check_report() {
+    local file=$1
+    local first_line line
+    local header_seen=0
+    local className methodName status reason issue extra
+    local rows=0 failed=0 passed=0 aborted=0 not_run=0
+    local offender
+    local -a offenders=()
+
+    [ -f "$file" ] || missing_report "$file"
+
+    first_line=""
+    IFS= read -r first_line < "$file" || true
+    first_line=${first_line%$'\r'}
+    case "$first_line" in
+        "# quarantine=disabled control=false") ;;
+        "")
+            unusable "$file" "the file is empty; the header comment is missing" \
+                "expected: # quarantine=disabled control=false"
+            ;;
+        "# quarantine=enabled"*)
+            unusable "$file" "the header says quarantine=enabled: $first_line" \
+                "the filter was on, so no quarantined method ran"
+            ;;
+        *"control=true"*)
+            unusable "$file" "the header says control=true: $first_line" \
+                "the xerial control run does not exercise the quarantine"
+            ;;
+        "#"*)
+            unusable "$file" "the header comment does not describe this run: $first_line" \
+                "expected: # quarantine=disabled control=false"
+            ;;
+        *)
+            unusable "$file" "the header comment is missing: $first_line" \
+                "expected: # quarantine=disabled control=false"
+            ;;
+    esac
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        if [ "$header_seen" -eq 0 ]; then
+            header_seen=1
+            if [ "$line" != $'className\tmethodName\tstatus\treason\tissue' ]; then
+                unusable "$file" \
+                    "the column header is missing or malformed" \
+                    "found: ${line:-<empty>}" \
+                    "expected: className<TAB>methodName<TAB>status<TAB>reason<TAB>issue"
+            fi
+            continue
+        fi
+        rows=$((rows + 1))
+        IFS=$'\t' read -r className methodName status reason issue extra <<< "$line"
+        if [ -z "$className" ] || [ -z "$methodName" ] || [ -z "$status" ] \
+            || [ -z "$reason" ] || [ -z "$issue" ] || [ -n "${extra:-}" ]; then
+            unusable "$file" "malformed data row $((rows + 1)): $line" \
+                "expected five tab-separated fields: className, methodName, status, reason, issue"
+        fi
+        case "$status" in
+            failed) failed=$((failed + 1)) ;;
+            passed)
+                passed=$((passed + 1))
+                offenders+=("$className#$methodName"$'\t'"$status"$'\t'"$reason"$'\t'"$issue")
+                ;;
+            aborted)
+                aborted=$((aborted + 1))
+                offenders+=("$className#$methodName"$'\t'"$status"$'\t'"$reason"$'\t'"$issue")
+                ;;
+            not-run)
+                not_run=$((not_run + 1))
+                offenders+=("$className#$methodName"$'\t'"$status"$'\t'"$reason"$'\t'"$issue")
+                ;;
+            *)
+                unusable "$file" "malformed data row $((rows + 1)): unknown status '$status'" \
+                    "expected one of: failed, passed, aborted, not-run"
+                ;;
+        esac
+    done < <(tail -n +2 "$file")
+
+    [ "$header_seen" -eq 1 ] \
+        || unusable "$file" "the column header is missing" \
+            "expected: className<TAB>methodName<TAB>status<TAB>reason<TAB>issue"
+    [ "$rows" -gt 0 ] || unusable "$file" "the report has no data rows"
+
+    if [ "${#offenders[@]}" -gt 0 ]; then
+        echo "error: ${#offenders[@]} quarantined conformance method(s) no longer fail" >&2
+        for offender in "${offenders[@]}"; do
+            IFS=$'\t' read -r className status reason issue <<< "$offender"
+            echo "  $className  [$status]" >&2
+            echo "    reason: $reason" >&2
+            echo "    issue:  $issue" >&2
+        done
+        cat >&2 <<'EOF'
+Remove each entry above from TursoQuarantine.QUARANTINED and update the README counts.
+EOF
+        exit 1
+    fi
+
+    echo "quarantine ratchet: $rows rows, failed=$failed passed=$passed aborted=$aborted not-run=$not_run"
+}
+
+self_test() {
+    local script cases=0 actual
+    local comment columns failed_row passed_row aborted_row not_run_row
+
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "$tmp_dir"' EXIT
+    script=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
+
+    comment='# quarantine=disabled control=false'
+    columns=$'className\tmethodName\tstatus\treason\tissue'
+    failed_row=$'org.sqlite.DBMetaDataTest\tgetTables\tfailed\tfixture reason\thttps://github.com/magnusp/turso-jdbc/issues/23'
+    passed_row=$'org.sqlite.DBMetaDataTest\tgetTables\tpassed\tfixture reason\thttps://github.com/magnusp/turso-jdbc/issues/23'
+    aborted_row=$'org.sqlite.DBMetaDataTest\tgetTables\taborted\tfixture reason\thttps://github.com/magnusp/turso-jdbc/issues/23'
+    not_run_row=$'org.sqlite.DBMetaDataTest\tgetTables\tnot-run\tfixture reason\thttps://github.com/magnusp/turso-jdbc/issues/23'
+
+    expect() {
+        local label=$1 expected=$2 file=$3 expected_text=${4:-}
+        actual=0
+        "$script" --file "$file" > "$tmp_dir/out" 2>&1 || actual=$?
+        if [ "$actual" -ne "$expected" ]; then
+            cat "$tmp_dir/out" >&2
+            die "self-test: $label exited $actual, expected $expected"
+        fi
+        if [ -n "$expected_text" ] && ! grep -Fq -- "$expected_text" "$tmp_dir/out"; then
+            cat "$tmp_dir/out" >&2
+            die "self-test: $label did not mention $expected_text"
+        fi
+        cases=$((cases + 1))
+    }
+
+    printf '%s\n%s\n%s\n%s\n' "$comment" "$columns" "$failed_row" "$failed_row" \
+        > "$tmp_dir/all-failed.tsv"
+    expect "all rows failed" 0 "$tmp_dir/all-failed.tsv"
+
+    printf '%s\n%s\n%s\n%s\n' "$comment" "$columns" "$failed_row" "$passed_row" \
+        > "$tmp_dir/one-passed.tsv"
+    expect "one passed row" 1 "$tmp_dir/one-passed.tsv" "org.sqlite.DBMetaDataTest#getTables"
+
+    printf '%s\n%s\n%s\n' "$comment" "$columns" "$not_run_row" > "$tmp_dir/one-not-run.tsv"
+    expect "one not-run row" 1 "$tmp_dir/one-not-run.tsv" "org.sqlite.DBMetaDataTest#getTables"
+
+    printf '%s\n%s\n%s\n' "$comment" "$columns" "$aborted_row" > "$tmp_dir/one-aborted.tsv"
+    expect "one aborted row" 1 "$tmp_dir/one-aborted.tsv" "org.sqlite.DBMetaDataTest#getTables"
+
+    printf '%s\n%s\n' "$comment" "$columns" > "$tmp_dir/no-rows.tsv"
+    expect "zero data rows" 2 "$tmp_dir/no-rows.tsv"
+
+    printf '%s\n%s\n%s\n' '# quarantine=enabled control=false' "$columns" "$failed_row" \
+        > "$tmp_dir/quarantine-enabled.tsv"
+    expect "header quarantine=enabled" 2 "$tmp_dir/quarantine-enabled.tsv"
+
+    printf '%s\n%s\n%s\n' '# quarantine=disabled control=true' "$columns" "$failed_row" \
+        > "$tmp_dir/control-true.tsv"
+    expect "header control=true" 2 "$tmp_dir/control-true.tsv"
+
+    expect "missing report" 2 "$tmp_dir/missing.tsv" "not found"
+
+    echo "self-test: $cases cases passed"
+}
+
+file="target/quarantine-ratchet.tsv"
+file_set=0
+self_test_enabled=0
+
+if [ "$#" -eq 0 ]; then
+    check_report "$file"
+    exit 0
+fi
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --file)
+            [ "$#" -ge 2 ] || unknown_argument "--file needs a value"
+            file=$2
+            file_set=1
+            shift 2
+            ;;
+        --self-test)
+            self_test_enabled=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            unknown_argument "unknown option: $1"
+            ;;
+    esac
+done
+
+if [ "$self_test_enabled" -eq 1 ]; then
+    [ "$file_set" -eq 0 ] || unknown_argument "--self-test cannot be used with --file"
+    self_test
+    exit 0
+fi
+
+check_report "$file"
