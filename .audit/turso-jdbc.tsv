@@ -1,0 +1,10 @@
+2026-10-28	Fork Turso bindings/java JDBC4 layer and replace JNI core with FFM	User chose the Turso JDBC base; spike 2 proved FFM over sdk-kit	Tech.turso JDBC4 classes compile unchanged; 14 fit tests pass	kept
+2026-10-28	Maven, Java 25, artifact io.github.magnusp.turso:turso-jdbc	Matches libsql-java tooling and FFM finalization	POM builds with JDK 25	TBD publish
+2026-10-28	Linux x86_64 native only, stripped and committed	User chose the smallest v1 matrix	Sdk-kit .so 75.8 MB -> 15.0 MB	kept
+2026-10-28	async_io=0, default syscall VFS	Benchmark: async_io=1 returned 0 TURSO_IO with UnixIO and showed no measurable difference	40-run benchmark and source read of step_inner/UnixIO	kept
+2026-10-28	No Hrana or libsql-java runtime dependency	User steering; Turso is the target	Only java.sql and FFM imports in main	kept
+2026-10-28	Port 14 fit tests and 3 vendored xerial classes	User chose fit + xerial scope	54 tests total, 0 failures, 1 upstream skip	kept
+2026-10-28	Implement savepoints, generated keys, ResultSetMetaData, DatabaseMetaData	The ported tests exposed the forked layer's TODOs	Fit suite and xerial suite green	kept
+2026-10-28	Recover declared type modifiers from sqlite_schema.sql	The engine's pragma and column_decltype drop precision/scale	RSMetaDataTest scale/precision pass	kept
+2026-10-28	Lenient value conversion and case-insensitive column lookup	Xerial JDBC behavior; real JDBC compatibility	ResultSetTest 21/21	kept
+2026-10-28	Verify the packaged jar, not only target/classes	Principle: prove it works on the artifact	Jar smoke printed version=3.50.4 id=1 v=jar	verified
