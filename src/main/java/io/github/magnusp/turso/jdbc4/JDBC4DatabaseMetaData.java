@@ -54,6 +54,19 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   @Nullable private PreparedStatement getColumnPrivileges = null;
 
   /**
+   * Executes a metadata query with close-on-completion so the temporary statement is released when
+   * its result set is closed.
+   */
+  private ResultSet metadataQuery(PreparedStatement statement) throws SQLException {
+    statement.closeOnCompletion();
+    return statement.executeQuery();
+  }
+
+  private ResultSet emptyMetadataQuery(String sql) throws SQLException {
+    return metadataQuery(connection.prepareStatement(sql));
+  }
+
+  /**
    * Creates a new JDBC4DatabaseMetaData instance.
    *
    * @param connection the database connection
@@ -718,11 +731,11 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       throws SQLException {
     // SQLite doesn't support catalogs or schemas — reject if non-empty values provided
     if (catalog != null && !catalog.isEmpty()) {
-      return connection.prepareStatement("SELECT * FROM sqlite_schema WHERE 1=0").executeQuery();
+      return emptyMetadataQuery("SELECT * FROM sqlite_schema WHERE 1=0");
     }
 
     if (schemaPattern != null && !schemaPattern.isEmpty()) {
-      return connection.prepareStatement("SELECT * FROM sqlite_schema WHERE 1=0").executeQuery();
+      return emptyMetadataQuery("SELECT * FROM sqlite_schema WHERE 1=0");
     }
 
     // Start building query
@@ -786,28 +799,28 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       stmt.setString(paramIndex, tableNamePattern);
     }
 
-    return stmt.executeQuery();
+    return metadataQuery(stmt);
   }
 
   @Override
   public ResultSet getSchemas() throws SQLException {
-    if (getSchemas == null) {
+    if (getSchemas == null || getSchemas.isClosed()) {
       connection.checkOpen();
       getSchemas =
           connection.prepareStatement("select null as TABLE_SCHEM, null as TABLE_CATALOG limit 0;");
     }
 
-    return getSchemas.executeQuery();
+    return metadataQuery(getSchemas);
   }
 
   @Override
   public ResultSet getCatalogs() throws SQLException {
-    if (getCatalogs == null) {
+    if (getCatalogs == null || getCatalogs.isClosed()) {
       connection.checkOpen();
       getCatalogs = connection.prepareStatement("select null as TABLE_CAT limit 0;");
     }
 
-    return getCatalogs.executeQuery();
+    return metadataQuery(getCatalogs);
   }
 
   @Override
@@ -823,10 +836,10 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
       throws SQLException {
     if (catalog != null && !catalog.isEmpty()) {
-      return connection.prepareStatement("SELECT 1 AS TABLE_NAME WHERE 1=0").executeQuery();
+      return emptyMetadataQuery("SELECT 1 AS TABLE_NAME WHERE 1=0");
     }
     if (schemaPattern != null && !schemaPattern.isEmpty()) {
-      return connection.prepareStatement("SELECT 1 AS TABLE_NAME WHERE 1=0").executeQuery();
+      return emptyMetadataQuery("SELECT 1 AS TABLE_NAME WHERE 1=0");
     }
     String tablePattern = tableNamePattern == null ? "%" : tableNamePattern;
     String columnPattern = columnNamePattern == null ? "%" : columnNamePattern;
@@ -855,14 +868,14 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     PreparedStatement statement = connection.prepareStatement(sql);
     statement.setString(1, tablePattern);
     statement.setString(2, columnPattern);
-    return statement.executeQuery();
+    return metadataQuery(statement);
   }
 
   @Override
   @SkipNullableCheck
   public ResultSet getColumnPrivileges(
       String catalog, String schema, String table, String columnNamePattern) throws SQLException {
-    if (getColumnPrivileges == null) {
+    if (getColumnPrivileges == null || getColumnPrivileges.isClosed()) {
       connection.checkOpen();
       getColumnPrivileges =
           connection.prepareStatement(
@@ -871,14 +884,14 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as PRIVILEGE, null as IS_GRANTABLE limit 0;");
     }
 
-    return getColumnPrivileges.executeQuery();
+    return metadataQuery(getColumnPrivileges);
   }
 
   @Override
   @SkipNullableCheck
   public ResultSet getTablePrivileges(String catalog, String schemaPattern, String tableNamePattern)
       throws SQLException {
-    if (getTablePrivileges == null) {
+    if (getTablePrivileges == null || getTablePrivileges.isClosed()) {
       connection.checkOpen();
       getTablePrivileges =
           connection.prepareStatement(
@@ -886,7 +899,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as TABLE_SCHEM, null as TABLE_NAME, null as GRANTOR, null "
                   + "GRANTEE,  null as PRIVILEGE, null as IS_GRANTABLE limit 0;");
     }
-    return getTablePrivileges.executeQuery();
+    return metadataQuery(getTablePrivileges);
   }
 
   @Override
@@ -894,7 +907,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getBestRowIdentifier(
       String catalog, String schema, String table, int scope, boolean nullable)
       throws SQLException {
-    if (getBestRowIdentifier == null) {
+    if (getBestRowIdentifier == null || getBestRowIdentifier.isClosed()) {
       connection.checkOpen();
       getBestRowIdentifier =
           connection.prepareStatement(
@@ -903,14 +916,14 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as BUFFER_LENGTH, null as DECIMAL_DIGITS, null as PSEUDO_COLUMN limit 0;");
     }
 
-    return getBestRowIdentifier.executeQuery();
+    return metadataQuery(getBestRowIdentifier);
   }
 
   @Override
   @SkipNullableCheck
   public ResultSet getVersionColumns(String catalog, String schema, String table)
       throws SQLException {
-    if (getVersionColumns == null) {
+    if (getVersionColumns == null || getVersionColumns.isClosed()) {
       connection.checkOpen();
       getVersionColumns =
           connection.prepareStatement(
@@ -918,7 +931,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as DATA_TYPE, null as TYPE_NAME, null as COLUMN_SIZE, "
                   + "null as BUFFER_LENGTH, null as DECIMAL_DIGITS, null as PSEUDO_COLUMN limit 0;");
     }
-    return getVersionColumns.executeQuery();
+    return metadataQuery(getVersionColumns);
   }
 
   @Override
@@ -932,7 +945,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
             + "WHERE m.name = ? AND p.pk > 0 ORDER BY p.pk";
     PreparedStatement statement = connection.prepareStatement(sql);
     statement.setString(1, table);
-    return statement.executeQuery();
+    return metadataQuery(statement);
   }
 
   @Override
@@ -986,7 +999,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
             + " ORDER BY il.name, ii.seqno";
     PreparedStatement statement = connection.prepareStatement(sql);
     statement.setString(1, table);
-    return statement.executeQuery();
+    return metadataQuery(statement);
   }
 
   @Override
@@ -1054,7 +1067,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getUDTs(
       String catalog, String schemaPattern, String typeNamePattern, int[] types)
       throws SQLException {
-    if (getUDTs == null) {
+    if (getUDTs == null || getUDTs.isClosed()) {
       connection.checkOpen();
       getUDTs =
           connection.prepareStatement(
@@ -1065,7 +1078,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     }
 
     getUDTs.clearParameters();
-    return getUDTs.executeQuery();
+    return metadataQuery(getUDTs);
   }
 
   @Override
@@ -1100,7 +1113,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   @SkipNullableCheck
   public ResultSet getSuperTypes(String catalog, String schemaPattern, String typeNamePattern)
       throws SQLException {
-    if (getSuperTypes == null) {
+    if (getSuperTypes == null || getSuperTypes.isClosed()) {
       connection.checkOpen();
       getSuperTypes =
           connection.prepareStatement(
@@ -1108,21 +1121,21 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as TYPE_NAME, null as SUPERTYPE_CAT, null as SUPERTYPE_SCHEM, "
                   + "null as SUPERTYPE_NAME limit 0;");
     }
-    return getSuperTypes.executeQuery();
+    return metadataQuery(getSuperTypes);
   }
 
   @Override
   @SkipNullableCheck
   public ResultSet getSuperTables(String catalog, String schemaPattern, String tableNamePattern)
       throws SQLException {
-    if (getSuperTables == null) {
+    if (getSuperTables == null || getSuperTables.isClosed()) {
       connection.checkOpen();
       getSuperTables =
           connection.prepareStatement(
               "select null as TABLE_CAT, null as TABLE_SCHEM, "
                   + "null as TABLE_NAME, null as SUPERTABLE_NAME limit 0;");
     }
-    return getSuperTables.executeQuery();
+    return metadataQuery(getSuperTables);
   }
 
   @Override
@@ -1130,7 +1143,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getAttributes(
       String catalog, String schemaPattern, String typeNamePattern, String attributeNamePattern)
       throws SQLException {
-    if (getAttributes == null) {
+    if (getAttributes == null || getAttributes.isClosed()) {
       connection.checkOpen();
       getAttributes =
           connection.prepareStatement(
@@ -1143,7 +1156,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                   + "null as SCOPE_SCHEMA, null as SCOPE_TABLE, null as SOURCE_DATA_TYPE limit 0;");
     }
 
-    return getAttributes.executeQuery();
+    return metadataQuery(getAttributes);
   }
 
   @Override
@@ -1200,13 +1213,13 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public ResultSet getSchemas(String catalog, String schemaPattern) throws SQLException {
-    if (getSchemas == null) {
+    if (getSchemas == null || getSchemas.isClosed()) {
       connection.checkOpen();
       getSchemas =
           connection.prepareStatement("select null as TABLE_SCHEM, null as TABLE_CATALOG limit 0;");
     }
 
-    return getSchemas.executeQuery();
+    return metadataQuery(getSchemas);
   }
 
   @Override

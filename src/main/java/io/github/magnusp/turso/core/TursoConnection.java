@@ -222,7 +222,7 @@ public final class TursoConnection {
 
   private void executeInternal(String sql) throws SQLException {
     try (TursoStatement statement = prepare(sql, false)) {
-      statement.execute();
+      statement.getResultSet().consumeAll();
     }
   }
 }

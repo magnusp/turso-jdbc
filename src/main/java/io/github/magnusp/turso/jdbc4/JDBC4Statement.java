@@ -6,6 +6,7 @@ import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -20,19 +21,11 @@ import io.github.magnusp.turso.core.TursoStatement;
 /** JDBC 4 Statement implementation for Turso databases. */
 public class JDBC4Statement implements Statement {
 
-  private static final Pattern BATCH_COMPATIBLE_PATTERN =
+  // INSERT or REPLACE, optionally preceded by a WITH clause (common table expression).
+  private static final Pattern INSERT_PATTERN =
       Pattern.compile(
-          "^\\s*"
-              + // Leading whitespace
-              "(?:/\\*.*?\\*/\\s*)*"
-              + // Optional C-style comments
-              "(?:--[^\\n]*\\n\\s*)*"
-              + // Optional SQL line comments
-              "(?:"
-              + // Start of keywords group
-              "INSERT|UPDATE|DELETE"
-              + ")\\b",
-          Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+          "^\\s*(?:with\\s+.+\\(.+?\\))*\\s*(?:insert|replace)\\s*",
+          Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
   protected final JDBC4Connection connection;
 
@@ -52,6 +45,17 @@ public class JDBC4Statement implements Statement {
   private final int resultSetHoldability;
 
   private int queryTimeoutSeconds;
+  protected int maxRows;
+  private int fetchSize;
+
+  /** The result set produced by the most recent execution, if any. */
+  @Nullable protected JDBC4ResultSet currentResultSet;
+
+  /** Whether the most recent execution produced a result set. */
+  protected boolean resultSetAvailable;
+
+  /** Whether {@link #getResultSet()} already handed the current result set to the caller. */
+  protected boolean resultSetReturned;
 
   private ReentrantLock connectionLock = new ReentrantLock();
 
@@ -89,6 +93,7 @@ public class JDBC4Statement implements Statement {
   @Override
   public ResultSet executeQuery(String sql) throws SQLException {
     ensureOpen();
+    closePreviousStatement();
     statement =
         this.withConnectionTimeout(
             () -> {
@@ -102,11 +107,26 @@ public class JDBC4Statement implements Statement {
             });
 
     requireNonNull(statement, "statement should not be null after running execute method");
-    return new JDBC4ResultSet(statement.getResultSet(), this);
+    statement.getResultSet().setMaxRows(maxRows);
+    currentResultSet = new JDBC4ResultSet(statement.getResultSet(), this);
+    resultSetAvailable = true;
+    resultSetReturned = true;
+    updateCount = -1;
+    return currentResultSet;
   }
 
   @Override
   public int executeUpdate(String sql) throws SQLException {
+    ensureOpen();
+    final List<String> statements = splitStatements(sql);
+    if (statements.size() > 1) {
+      long total = 0;
+      for (String command : statements) {
+        total += executeUpdate(command);
+      }
+      return (int) total;
+    }
+
     final long previousTotalChanges = statement == null ? 0L : statement.totalChanges();
 
     execute(sql);
@@ -143,13 +163,15 @@ public class JDBC4Statement implements Statement {
 
   @Override
   public int getMaxRows() throws SQLException {
-    // TODO
-    return 0;
+    return maxRows;
   }
 
   @Override
   public void setMaxRows(int max) throws SQLException {
-    // TODO
+    if (max < 0) {
+      throw new SQLException("max rows must not be negative");
+    }
+    this.maxRows = max;
   }
 
   @Override
@@ -209,11 +231,24 @@ public class JDBC4Statement implements Statement {
             if (!batchExecution) {
               generatedKeys.clear();
             }
+            closePreviousStatement();
             statement = connection.prepare(sql);
+            statement.getResultSet().setMaxRows(maxRows);
             final long previousChanges = statement.totalChanges();
             final boolean result = statement.execute();
-            updateGeneratedKeys();
-            updateCount = statement.totalChanges() - previousChanges;
+            if (result) {
+              currentResultSet = new JDBC4ResultSet(statement.getResultSet(), this);
+              resultSetAvailable = true;
+              resultSetReturned = false;
+              updateCount = -1;
+            } else {
+              statement.getResultSet().consumeAll();
+              updateGeneratedKeys();
+              updateCount = statement.totalChanges() - previousChanges;
+              resultSetAvailable = false;
+              resultSetReturned = false;
+              currentResultSet = null;
+            }
 
             return result;
           } finally {
@@ -223,10 +258,17 @@ public class JDBC4Statement implements Statement {
   }
 
   @Override
+  @SkipNullableCheck
   public ResultSet getResultSet() throws SQLException {
-    requireNonNull(statement, "statement is null");
     ensureOpen();
-    return new JDBC4ResultSet(statement.getResultSet(), this);
+    if (!resultSetAvailable) {
+      return null;
+    }
+    if (resultSetReturned) {
+      throw new SQLException("No result set available");
+    }
+    resultSetReturned = true;
+    return currentResultSet;
   }
 
   @Override
@@ -236,24 +278,29 @@ public class JDBC4Statement implements Statement {
 
   @Override
   public void setFetchDirection(int direction) throws SQLException {
-    // TODO
+    if (direction != ResultSet.FETCH_FORWARD
+        && direction != ResultSet.FETCH_REVERSE
+        && direction != ResultSet.FETCH_UNKNOWN) {
+      throw new SQLException("Invalid fetch direction: " + direction);
+    }
   }
 
   @Override
   public int getFetchDirection() throws SQLException {
-    // TODO
-    return 0;
+    return ResultSet.FETCH_FORWARD;
   }
 
   @Override
   public void setFetchSize(int rows) throws SQLException {
-    // TODO
+    if (rows < 0) {
+      throw new SQLException("Fetch size must not be negative");
+    }
+    this.fetchSize = rows;
   }
 
   @Override
   public int getFetchSize() throws SQLException {
-    // TODO
-    return 0;
+    return fetchSize;
   }
 
   @Override
@@ -287,7 +334,6 @@ public class JDBC4Statement implements Statement {
     ensureOpen();
 
     int[] updateCounts = new int[batchCommands.size()];
-    List<String> failedCommands = new ArrayList<>();
     batchExecution = true;
     generatedKeys.clear();
 
@@ -295,31 +341,27 @@ public class JDBC4Statement implements Statement {
     for (int i = 0; i < batchCommands.size(); i++) {
       String sql = batchCommands.get(i);
       try {
-        if (!isBatchCompatibleStatement(sql)) {
-          failedCommands.add(sql);
+        boolean producedResultSet = execute(sql);
+        if (producedResultSet) {
+          closeCurrentResultSet();
           updateCounts[i] = EXECUTE_FAILED;
-          BatchUpdateException bue =
-              new BatchUpdateException(
-                  "Batch entry "
-                      + i
-                      + " ("
-                      + sql
-                      + ") was aborted. "
-                      + "Batch commands cannot return result sets.",
-                  "HY000", // General error SQL state
-                  0,
-                  updateCounts);
-          // Clear the batch after failure
           clearBatch();
           batchExecution = false;
-          throw bue;
+          throw new BatchUpdateException(
+              "Batch entry "
+                  + i
+                  + " ("
+                  + sql
+                  + ") was aborted. "
+                  + "Batch commands cannot return result sets.",
+              "HY000", // General error SQL state
+              0,
+              updateCounts);
         }
-
-        execute(sql);
-        // For DML statements, get the update count
         updateCounts[i] = getUpdateCount();
+      } catch (BatchUpdateException e) {
+        throw e;
       } catch (SQLException e) {
-        failedCommands.add(sql);
         updateCounts[i] = EXECUTE_FAILED;
 
         // Create a BatchUpdateException with the partial results
@@ -343,12 +385,59 @@ public class JDBC4Statement implements Statement {
     return updateCounts;
   }
 
-  protected boolean isBatchCompatibleStatement(String sql) {
-    if (sql == null || sql.trim().isEmpty()) {
-      return false;
+  private void closeCurrentResultSet() throws SQLException {
+    if (statement != null) {
+      statement.getResultSet().close();
     }
+    currentResultSet = null;
+    resultSetAvailable = false;
+    resultSetReturned = false;
+  }
 
-    return BATCH_COMPATIBLE_PATTERN.matcher(sql).find();
+  /**
+   * Closes the native statement of the previous execution. Keeping it open would keep a read
+   * snapshot alive on this connection.
+   */
+  private void closePreviousStatement() throws SQLException {
+    if (statement != null) {
+      statement.close();
+      statement = null;
+    }
+  }
+
+  private static List<String> splitStatements(String sql) {
+    List<String> statements = new ArrayList<>();
+    StringBuilder current = new StringBuilder();
+    char quote = 0;
+    for (int i = 0; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      if (quote != 0) {
+        current.append(c);
+        if (c == quote) {
+          if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
+            current.append(sql.charAt(++i));
+          } else {
+            quote = 0;
+          }
+        }
+      } else if (c == '\'' || c == '"' || c == '`') {
+        quote = c;
+        current.append(c);
+      } else if (c == ';') {
+        addStatement(statements, current);
+      } else {
+        current.append(c);
+      }
+    }
+    addStatement(statements, current);
+    return statements;
+  }
+
+  private static void addStatement(List<String> statements, StringBuilder current) {
+    if (!current.toString().isBlank()) {
+      statements.add(current.toString());
+    }
+    current.setLength(0);
   }
 
   @Override
@@ -365,11 +454,18 @@ public class JDBC4Statement implements Statement {
   public boolean getMoreResults(int current) throws SQLException {
     requireNonNull(statement, "statement should not be null");
 
+    if (current == Statement.KEEP_CURRENT_RESULT || current == Statement.CLOSE_ALL_RESULTS) {
+      throw new SQLFeatureNotSupportedException(
+          "Argument not supported: Statement.KEEP_CURRENT_RESULT or Statement.CLOSE_ALL_RESULTS");
+    }
     if (current != Statement.CLOSE_CURRENT_RESULT) {
       throw new SQLException("Invalid argument");
     }
 
     statement.getResultSet().close();
+    currentResultSet = null;
+    resultSetAvailable = false;
+    resultSetReturned = false;
     updateCount = -1;
 
     return false;
@@ -474,14 +570,15 @@ public class JDBC4Statement implements Statement {
   @Override
   @SkipNullableCheck
   public <T> T unwrap(Class<T> iface) throws SQLException {
-    // TODO
-    return null;
+    if (iface.isInstance(this)) {
+      return iface.cast(this);
+    }
+    throw new SQLException("Cannot unwrap to " + iface.getName());
   }
 
   @Override
   public boolean isWrapperFor(Class<?> iface) throws SQLException {
-    // TODO
-    return false;
+    return iface.isInstance(this);
   }
 
   protected void updateGeneratedKeys() throws SQLException {
@@ -492,8 +589,7 @@ public class JDBC4Statement implements Statement {
     if (sql == null) {
       return;
     }
-    String trimmed = sql.stripLeading().toUpperCase(java.util.Locale.ROOT);
-    if (trimmed.startsWith("INSERT") || trimmed.startsWith("REPLACE")) {
+    if (INSERT_PATTERN.matcher(sql).find()) {
       generatedKeys.add(connection.getLastInsertRowid());
     }
   }
@@ -534,7 +630,7 @@ public class JDBC4Statement implements Statement {
     T call() throws SQLException;
   }
 
-  private void ensureOpen() throws SQLException {
+  protected void ensureOpen() throws SQLException {
     if (closed) {
       throw new SQLException("Statement is closed");
     }

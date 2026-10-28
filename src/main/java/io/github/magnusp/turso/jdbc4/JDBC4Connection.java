@@ -1,11 +1,11 @@
 package io.github.magnusp.turso.jdbc4;
 
 import java.sql.*;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import java.util.concurrent.Executor;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoConnection;
@@ -18,7 +18,7 @@ public final class JDBC4Connection implements Connection {
 
   private Map<String, Class<?>> typeMap = new HashMap<>();
   private int savepointCounter;
-  private final Set<String> autoCommitSavepoints = new HashSet<>();
+  private final Deque<TursoSavepoint> savepoints = new ArrayDeque<>();
 
   /**
    * Creates a new JDBC4 connection.
@@ -93,6 +93,9 @@ public final class JDBC4Connection implements Connection {
   @Override
   public void setAutoCommit(boolean autoCommit) throws SQLException {
     connection.setAutoCommit(autoCommit);
+    if (autoCommit) {
+      savepoints.clear();
+    }
   }
 
   @Override
@@ -102,12 +105,20 @@ public final class JDBC4Connection implements Connection {
 
   @Override
   public void commit() throws SQLException {
-    connection.commit();
+    try {
+      connection.commit();
+    } finally {
+      savepoints.clear();
+    }
   }
 
   @Override
   public void rollback() throws SQLException {
-    connection.rollback();
+    try {
+      connection.rollback();
+    } finally {
+      savepoints.clear();
+    }
   }
 
   @Override
@@ -196,37 +207,80 @@ public final class JDBC4Connection implements Connection {
   @Override
   @SkipNullableCheck
   public Savepoint setSavepoint() throws SQLException {
-    return setSavepoint("turso_sp_" + (++savepointCounter));
+    return createSavepoint("turso_sp_" + (savepointCounter + 1));
   }
 
   @Override
   @SkipNullableCheck
   public Savepoint setSavepoint(String name) throws SQLException {
+    return createSavepoint(name);
+  }
+
+  @SkipNullableCheck
+  private Savepoint createSavepoint(String name) throws SQLException {
     connection.checkOpen();
+    // A savepoint needs a transaction so that a later commit()/rollback() has an effect.
+    if (getAutoCommit()) {
+      setAutoCommit(false);
+    }
     try (Statement statement = createStatement()) {
       statement.execute("SAVEPOINT " + quoteIdentifier(name));
     }
-    if (getAutoCommit()) {
-      autoCommitSavepoints.add(name);
-    }
-    return new TursoSavepoint(savepointCounter, name);
+    TursoSavepoint savepoint = new TursoSavepoint(++savepointCounter, name);
+    savepoints.addLast(savepoint);
+    return savepoint;
   }
 
   @Override
   public void rollback(Savepoint savepoint) throws SQLException {
+    connection.checkOpen();
+    if (getAutoCommit()) {
+      throw new SQLException("database in auto-commit mode");
+    }
     String name = savepointName(savepoint);
     try (Statement statement = createStatement()) {
       statement.execute("ROLLBACK TO " + quoteIdentifier(name));
+    }
+    // Savepoints created after the target are discarded by ROLLBACK TO.
+    if (containsSavepoint(name)) {
+      while (!savepoints.isEmpty() && !savepoints.peekLast().getName().equals(name)) {
+        savepoints.removeLast();
+      }
     }
   }
 
   @Override
   public void releaseSavepoint(Savepoint savepoint) throws SQLException {
+    connection.checkOpen();
+    if (getAutoCommit()) {
+      throw new SQLException("database in auto-commit mode");
+    }
     String name = savepointName(savepoint);
     try (Statement statement = createStatement()) {
       statement.execute("RELEASE " + quoteIdentifier(name));
     }
-    autoCommitSavepoints.remove(name);
+    boolean released = containsSavepoint(name);
+    if (released) {
+      while (!savepoints.isEmpty()) {
+        TursoSavepoint removed = savepoints.removeLast();
+        if (removed.getName().equals(name)) {
+          break;
+        }
+      }
+    }
+    // Releasing the outermost savepoint commits the transaction, like xerial does.
+    if (released && savepoints.isEmpty()) {
+      commit();
+    }
+  }
+
+  private boolean containsSavepoint(String name) {
+    for (TursoSavepoint savepoint : savepoints) {
+      if (savepoint.getName().equals(name)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String savepointName(Savepoint savepoint) throws SQLException {
@@ -407,13 +461,15 @@ public final class JDBC4Connection implements Connection {
   @Override
   @SkipNullableCheck
   public <T> T unwrap(Class<T> iface) throws SQLException {
-    return null;
+    if (iface.isInstance(this)) {
+      return iface.cast(this);
+    }
+    throw new SQLException("Cannot unwrap to " + iface.getName());
   }
 
   @Override
   public boolean isWrapperFor(Class<?> iface) throws SQLException {
-    // TODO
-    return false;
+    return iface.isInstance(this);
   }
 
   /**
