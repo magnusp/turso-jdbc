@@ -3,10 +3,12 @@ This product includes software developed by the Turso Database project.
 Turso Database
   https://github.com/tursodatabase/turso
   License: MIT
-  Commit: 607bff9fd0e547a25a97b3bf06e83bcc5d99d53c (turso_sdk_kit 0.8.3)
-  The Java JDBC layer under src/main/java/tech/turso is derived from bindings/java at that commit.
+  Java JDBC layer source: bindings/java at commit
+    23136ed501f40a6b442293566cd0544d47ca6d3d (0.9.0-pre.1).
+  Native library source: turso_sdk_kit at tag v0.8.3, commit
+    607bff9fd0e547a25a97b3bf06e83bcc5d99d53c (0.8.3).
   The native library at src/main/resources/tech/turso/native/linux-x86_64/libturso_sdk_kit.so
-  is built from turso_sdk_kit at the same commit.
+  is built from turso_sdk_kit at the v0.8.3 tag.
 
 This product includes test sources from xerial/sqlite-jdbc.
 

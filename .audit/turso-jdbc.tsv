@@ -8,4 +8,4 @@
 2026-10-28	Recover declared type modifiers from sqlite_schema.sql	The engine's pragma and column_decltype drop precision/scale	RSMetaDataTest scale/precision pass	kept
 2026-10-28	Lenient value conversion and case-insensitive column lookup	Xerial JDBC behavior; real JDBC compatibility	ResultSetTest 21/21	kept
 2026-10-28	Verify the packaged jar, not only target/classes	Principle: prove it works on the artifact	Jar smoke printed version=3.50.4 id=1 v=jar	verified
-2026-10-28	Pin the native library to Turso 0.8.3	Use the released tag instead of 0.9.0-pre.1 and check the released C ABI for cancellation	0.8.3 .so passes 54 tests and reports turso_version()=0.8.3; C ABI still has no interrupt; upstream turso#9234 tracks exposure	PR chore/turso-0.8.3
+2026-10-28	Pin the native library to Turso 0.8.3	Use the released tag instead of 0.9.0-pre.1 and check the released C ABI for cancellation	0.8.3 .so passes 54 tests and reports turso_version()=0.8.3; C ABI still has no interrupt; upstream turso#9234 tracks exposure; Java layer stays 0.9.0-pre.1	PR chore/turso-0.8.3

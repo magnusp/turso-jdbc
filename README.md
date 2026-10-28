@@ -3,8 +3,9 @@
 A JDBC driver for embedded [Turso](https://github.com/tursodatabase/turso), backed by Java 25
 Panama FFM over Turso's `turso_sdk_kit` C ABI.
 
-The `java.sql` layer is forked from Turso's `bindings/java` JDBC 4 driver. The JNI core is replaced
-by a direct FFM core in `tech.turso.core`. There is no Hrana, no libSQL client, and no JNI.
+The `java.sql` layer is forked from Turso's `bindings/java` JDBC 4 driver at the 0.9.0-pre.1
+source. The JNI core is replaced by a direct FFM core in `tech.turso.core`. There is no Hrana,
+no libSQL client, and no JNI.
 
 ## Status
 
@@ -63,11 +64,12 @@ The test suite currently runs 54 tests with 0 failures and 1 upstream-disabled t
 
 ## Native library
 
-The committed library was built from Turso tag `v0.8.3`, commit
-`607bff9fd0e547a25a97b3bf06e83bcc5d99d53c` (`turso_sdk_kit` version `0.8.3`), on Debian
-Bookworm (glibc 2.35) and stripped with `strip --strip-all`. It reports `turso_version() = 0.8.3`. Building on a newer distribution can
-raise the required glibc version, which breaks older runners and users. Issue #5 tracks a pinned
-and verified native build.
+The Java layer comes from the 0.9.0-pre.1 source. The committed native library is built from Turso
+tag `v0.8.3`, commit `607bff9fd0e547a25a97b3bf06e83bcc5d99d53c` (`turso_sdk_kit` version `0.8.3`),
+on Debian Bookworm (glibc 2.35) and stripped with `strip --strip-all`. It reports
+`turso_version() = 0.8.3`. The C ABI used here is identical between 0.8.3 and 0.9.0-pre.1.
+Building on a newer distribution can raise the required glibc version, which breaks older runners
+and users. Issue #5 tracks a pinned and verified native build.
 
 Rebuild it with:
 
