@@ -696,19 +696,16 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   }
 
   @Override
-  @SkipNullableCheck
   public ResultSet getProcedures(
-      String catalog, String schemaPattern, String procedureNamePattern) {
-    // TODO
-    return null;
+      String catalog, String schemaPattern, String procedureNamePattern) throws SQLException {
+    throw new SQLFeatureNotSupportedException("turso does not support stored procedures", "0A000");
   }
 
   @Override
-  @SkipNullableCheck
   public ResultSet getProcedureColumns(
-      String catalog, String schemaPattern, String procedureNamePattern, String columnNamePattern) {
-    // TODO
-    return null;
+      String catalog, String schemaPattern, String procedureNamePattern, String columnNamePattern)
+      throws SQLException {
+    throw new SQLFeatureNotSupportedException("turso does not support stored procedures", "0A000");
   }
 
   // TODO: make use of getSearchStringEscape
