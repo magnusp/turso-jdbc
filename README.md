@@ -48,7 +48,9 @@ The driver registers itself through `META-INF/services/java.sql.Driver`.
 ## Build and test
 
 ```sh
-mvn test
+mvn test                      # fast fit and smoke suite
+mvn verify                    # fast suite plus the xerial conformance suite
+mvn -Pxerial-control verify   # same pinned xerial tests against sqlite-jdbc 3.53.4.0
 mvn package
 scripts/build-native.sh --check
 ```
@@ -57,15 +59,56 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-The test suite currently runs 62 tests with 0 failures and 1 upstream-disabled test:
+`mvn test` runs 25 tests with 0 failures and 0 skips:
 
 - 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
 - 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
+
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 43 tests with
+0 failures and 1 upstream skip:
+
 - 21 vendored xerial `ResultSetTest`
 - 3 vendored xerial `InsertQueryTest` (1 disabled upstream)
 - 13 vendored xerial `RSMetaDataTest`
+- 6 conformance harness tests (`TursoHarnessTest`)
+
+The `xerial-control` profile skips the fast suite and runs the 37 pinned xerial methods against
+`org.xerial:sqlite-jdbc:3.53.4.0`: 36 pass, 1 upstream skip, 0 quarantined.
+
+### Xerial conformance harness
+
+The three test classes and `Utils` come from a pinned export of `xerial/sqlite-jdbc` tag
+`3.53.4.0`, commit `cab7981c19ce04d691f0675f0b2586afc2bbf803`. `target/generated-test-sources/xerial`
+is populated from `upstream-xerial_sqlite-jdbc.manifest`; the committed upstream tree is checked
+on every build:
+
+```sh
+tools/export-upstream --verify
+tools/export-upstream --self-test
+```
+
+The test-only `TursoConformanceDriver` maps the xerial tests' `jdbc:sqlite:` URLs onto embedded
+Turso:
+
+- `jdbc:sqlite:` and `jdbc:sqlite::memory:` map to `jdbc:turso::memory:`.
+- `file::memory:?cache=shared` and URLs with `mode=memory` map to memory.
+- `jdbc:sqlite:<path>` and `jdbc:sqlite:file:<path>` map to a normalized local file.
+- `jdbc:sqlite:http://` and `jdbc:sqlite:https://` are rejected.
+- Connection `Properties` are passed through. URL pragmas, `shared_cache`, and read-only open
+  modes are not applied.
+
+Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
+checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` can exclude
+explicit xerial methods with a reason, upstream difference, and issue; it is inactive in the
+control run and currently has no entries. `TursoConformanceReport` writes
+`target/conformance-summary.txt` with total, executed, passed, failed, skipped, and quarantined
+counts (`total = executed + quarantined`). Failsafe reports are under `target/failsafe-reports`.
+
+Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
+running the conformance tests from an IDE.
 
 ## Native library
 
