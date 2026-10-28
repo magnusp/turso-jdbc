@@ -107,7 +107,9 @@ provide.
 ## Known limitations
 
 - Linux x86_64 only.
-- No `Statement.cancel()` or query timeout. The C ABI has no interrupt entry point.
+- No `Statement.cancel()` or query timeout. The C ABI has no interrupt entry point. Upstream is
+  working on early-cancellation safety before exposing it; see
+  https://github.com/tursodatabase/turso/issues/9234.
 - No LOB streaming, updatable result sets, `CallableStatement`, XA, or connection pooling.
 - `DatabaseMetaData.getImportedKeys`, `getExportedKeys`, `getCrossReference`, and `getTypeInfo`
   are not implemented.
