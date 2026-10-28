@@ -10,6 +10,8 @@ if [[ ! -f "$TURSO/Cargo.toml" ]]; then
   exit 2
 fi
 
+# The committed Linux x86_64 binary targets glibc 2.35 (Debian Bookworm). Building on a newer
+# distribution raises the required glibc version. Issue #5 tracks a pinned native build.
 mkdir -p "$OUT"
 cargo build -p turso_sdk_kit --release --manifest-path "$TURSO/Cargo.toml"
 cp "$TURSO/target/release/libturso_sdk_kit.so" "$OUT/libturso_sdk_kit.so"

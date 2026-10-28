@@ -64,8 +64,10 @@ The test suite currently runs 54 tests with 0 failures and 1 upstream-disabled t
 ## Native library
 
 The committed library was built from Turso commit
-`23136ed501f40a6b442293566cd0544d47ca6d3d` (`turso_sdk_kit` version `0.9.0-pre.1`) and stripped
-with `strip --strip-all`.
+`23136ed501f40a6b442293566cd0544d47ca6d3d` (`turso_sdk_kit` version `0.9.0-pre.1`) on Debian
+Bookworm (glibc 2.35) and stripped with `strip --strip-all`. Building on a newer distribution can
+raise the required glibc version, which breaks older runners and users. Issue #5 tracks a pinned
+and verified native build.
 
 Rebuild it with:
 

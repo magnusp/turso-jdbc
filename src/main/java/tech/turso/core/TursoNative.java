@@ -710,6 +710,11 @@ public final class TursoNative {
       Files.copy(input, temp, StandardCopyOption.REPLACE_EXISTING);
       temp.toFile().deleteOnExit();
       temp.toFile().setReadable(true, true);
+      temp.toFile().setWritable(true, true);
+      temp.toFile().setExecutable(true, true);
+      if (Files.size(temp) == 0) {
+        throw new IOException("extracted " + LIB_NAME + " is empty");
+      }
       return temp.toAbsolutePath();
     } catch (IOException e) {
       throw new InternalError("Unable to extract " + LIB_NAME, e);
