@@ -22,13 +22,9 @@ import java.util.Set;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoPropertiesHolder;
-import io.github.magnusp.turso.utils.Logger;
-import io.github.magnusp.turso.utils.LoggerFactory;
 
 /** JDBC 4 DatabaseMetaData implementation for Turso databases. */
 public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
-
-  private static final Logger logger = LoggerFactory.getLogger(JDBC4DatabaseMetaData.class);
 
   private static final List<String> TABLE_COLUMNS =
       List.of(
