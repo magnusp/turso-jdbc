@@ -452,6 +452,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   public void addBatch() {
     batchQueryParams.add(currentBatchParams);
     currentBatchParams = new Object[paramCount];
+    Arrays.fill(parameterSet, false);
   }
 
   @Override
