@@ -68,9 +68,11 @@ public final class TursoConformanceReport implements TestExecutionListener {
         int executed = passedCount + failedCount + skippedCount;
         int quarantined = TursoQuarantine.excludedCount();
         int total = executed + quarantined;
+        boolean control = TursoControl.isEnabled();
 
         String summary =
                 """
+                control=%s
                 total=%d
                 executed=%d
                 passed=%d
@@ -78,7 +80,14 @@ public final class TursoConformanceReport implements TestExecutionListener {
                 skipped=%d
                 quarantined=%d
                 """
-                        .formatted(total, executed, passedCount, failedCount, skippedCount, quarantined);
+                        .formatted(
+                                control,
+                                total,
+                                executed,
+                                passedCount,
+                                failedCount,
+                                skippedCount,
+                                quarantined);
 
         Path file = Path.of(System.getProperty(FILE_PROPERTY, DEFAULT_FILE));
         try {
@@ -92,6 +101,7 @@ public final class TursoConformanceReport implements TestExecutionListener {
         }
 
         System.out.println("Conformance summary");
+        System.out.println("  control:     " + control);
         System.out.println("  total:       " + total);
         System.out.println("  executed:    " + executed);
         System.out.println("  passed:      " + passedCount);

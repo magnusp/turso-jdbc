@@ -3,12 +3,10 @@
 # tools/export-upstream exports these paths by default. Run
 # `tools/export-upstream --verify` after any change.
 #
-# The first conformance slice covers only the three xerial test classes that
-# were already hand-copied into this repository, plus their shared Utils
-# support class. The ten selected classes that remain for a follow-up slice are
-# FetchSizeTest, CachedRowSetTest, JSON1Test, MetadataLeakTest,
-# PreparedStatementThreadTest, ResultSetWithoutResultsTest, DBMetaDataTest,
-# StatementTest, PrepStmtTest, and SavepointTest.
+# Selection rationale. The suite selects tests that exercise JDBC behavior
+# through ordinary SQL on the embedded engine. Tests that drive sqlite-jdbc's
+# native extension API, its configuration surface, or remote-model semantics
+# stay upstream; the rejected classes are listed at the end.
 #
 # A deliberate divergence from upstream keeps the "# upstream" hash in
 # upstream-xerial_sqlite-jdbc/CHECKSUMS.sha256, updates the current hash, and
@@ -22,13 +20,68 @@
 # Selected tests.
 # selected: src/test/java/org/sqlite/ResultSetTest.java -- ResultSet navigation and getter conversions over ordinary SQL.
 # selected: src/test/java/org/sqlite/InsertQueryTest.java -- transaction reuse and commit visibility across shared and independent connections.
+# selected: src/test/java/org/sqlite/FetchSizeTest.java -- fetch-size configuration and stable result ordering.
+# selected: src/test/java/org/sqlite/CachedRowSetTest.java -- disconnected CachedRowSet population through a JDBC connection.
+# selected: src/test/java/org/sqlite/JSON1Test.java -- SQL JSON function output and text conversion.
+# selected: src/test/java/org/sqlite/MetadataLeakTest.java -- metadata result sets close the statement that produced them.
+# selected: src/test/java/org/sqlite/PreparedStatementThreadTest.java -- concurrent execute and close must not crash or hide failures.
+# selected: src/test/java/org/sqlite/ResultSetWithoutResultsTest.java -- statement result-kind transitions leave no stale result set.
 # selected: src/test/java/org/sqlite/RSMetaDataTest.java -- ResultSetMetaData column names, types, and nullability.
+# selected: src/test/java/org/sqlite/DBMetaDataTest.java -- DatabaseMetaData tables, columns, keys, type info, and java.sql-shaped empty result sets.
+# selected: src/test/java/org/sqlite/StatementTest.java -- Statement lifecycle, conversions, batches, and execute transitions over ordinary SQL.
+# selected: src/test/java/org/sqlite/PrepStmtTest.java -- PreparedStatement binding, metadata, batches, and value round trips.
+# selected: src/test/java/org/sqlite/SavepointTest.java -- savepoint creation, rollback, and release over ordinary SQL.
 
-# First conformance slice.
+# Deliberate divergences. Both files refer to concrete sqlite-jdbc classes that the
+# embedded driver does not ship under org.sqlite.
+# divergence: src/test/java/org/sqlite/StatementTest.java -- xerial's SQLiteConnection, JDBC3Statement, JDBC4Statement, and generated-keys configuration hook do not exist in the embedded driver; the conformance copy uses standard java.sql unwrap and closeOnCompletion calls, drops the xerial configuration case, runs the post-close generated-keys case on the fresh statement, and accepts the embedded engine's lock-free DROP while a result set is open.
+# divergence: src/test/java/org/sqlite/PrepStmtTest.java -- xerial's URL-generated-keys configuration and SQLiteException/SQLiteErrorCode types do not exist in the embedded driver; the conformance copy drops the configuration cases and asserts the standard SQLException error code.
+
+# Rejected tests. Each line names the reason the class stays upstream.
+# rejected: src/test/java/org/sqlite/BackupTest.java -- native backup API; the embedded engine exposes no equivalent.
+# rejected: src/test/java/org/sqlite/BusyHandlerTest.java -- native busy-handler callbacks.
+# rejected: src/test/java/org/sqlite/CollationTest.java -- JVM collations through the native extension API.
+# rejected: src/test/java/org/sqlite/ConnectionTest.java -- sqlite-jdbc URL, open-mode, and resource-loading configuration.
+# rejected: src/test/java/org/sqlite/ErrorMessageTest.java -- asserts sqlite-jdbc wording and native result codes.
+# rejected: src/test/java/org/sqlite/ExtendedCommandTest.java -- sqlite-jdbc dot-command parser.
+# rejected: src/test/java/org/sqlite/ExtensionTest.java -- native SQLite extension loading.
+# rejected: src/test/java/org/sqlite/JDBCTest.java -- mixes driver URL, extension loading, and read-only configuration.
+# rejected: src/test/java/org/sqlite/ListenerTest.java -- native update, commit, rollback, and authorizer hooks.
+# rejected: src/test/java/org/sqlite/MathFunctionsTest.java -- depends on the engine build enabling SQLITE_ENABLE_MATH_FUNCTIONS.
+# rejected: src/test/java/org/sqlite/MultipleClassLoaderTest.java -- sqlite-jdbc native library loading per class loader.
+# rejected: src/test/java/org/sqlite/ProgressHandlerTest.java -- native progress callbacks.
+# rejected: src/test/java/org/sqlite/QueryTest.java -- imports SQLiteConfig and FastDateFormat and drives query timeouts.
+# rejected: src/test/java/org/sqlite/ReadUncommittedTest.java -- shared-cache and read-uncommitted connection configuration.
+# rejected: src/test/java/org/sqlite/SerializeTest.java -- native database image serialization.
+# rejected: src/test/java/org/sqlite/SQLiteConfigTest.java -- sqlite-jdbc configuration object.
+# rejected: src/test/java/org/sqlite/SQLiteConnectionPoolDataSourceTest.java -- sqlite-jdbc pooling classes.
+# rejected: src/test/java/org/sqlite/SQLiteDataSourceTest.java -- sqlite-jdbc DataSource classes.
+# rejected: src/test/java/org/sqlite/SQLiteJDBCLoaderTest.java -- native SQLite library loader.
+# rejected: src/test/java/org/sqlite/TransactionTest.java -- SQLite file-locking and multi-connection wait behavior.
+# rejected: src/test/java/org/sqlite/TypeMapTest.java -- connection type maps are rejected by the driver contract.
+# rejected: src/test/java/org/sqlite/UDFCustomErrorTest.java -- JVM UDFs and native error callbacks.
+# rejected: src/test/java/org/sqlite/UDFTest.java -- JVM UDFs through the native extension API.
+# rejected: src/test/java/org/sqlite/util/OSInfoTest.java -- sqlite-jdbc OS and native-library detection utility.
+# rejected: src/test/java/org/sqlite/architecture/CodingRulesTest.java -- ArchUnit rules over sqlite-jdbc source conventions.
+# rejected: src/test/java/org/sqlite/architecture/TestCodingRulesTest.java -- ArchUnit rules over sqlite-jdbc test conventions.
+
+# Selected support code.
 src/test/java/org/sqlite/Utils.java
+
+# Conformance batch.
 src/test/java/org/sqlite/ResultSetTest.java
 src/test/java/org/sqlite/InsertQueryTest.java
+src/test/java/org/sqlite/FetchSizeTest.java
+src/test/java/org/sqlite/CachedRowSetTest.java
+src/test/java/org/sqlite/JSON1Test.java
+src/test/java/org/sqlite/MetadataLeakTest.java
+src/test/java/org/sqlite/PreparedStatementThreadTest.java
+src/test/java/org/sqlite/ResultSetWithoutResultsTest.java
 src/test/java/org/sqlite/RSMetaDataTest.java
+src/test/java/org/sqlite/DBMetaDataTest.java
+src/test/java/org/sqlite/StatementTest.java
+src/test/java/org/sqlite/PrepStmtTest.java
+src/test/java/org/sqlite/SavepointTest.java
 
 # License and metadata files that travel with the exported test sources.
 LICENSE

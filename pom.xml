@@ -200,14 +200,13 @@
                 </executions>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
-                    <!-- The module is a single jar, so Failsafe names the conformance
-                         classes explicitly instead of re-running the fast suite.
-                         Add a class here when the pinned manifest grows. -->
+                    <!-- The manifest decides which xerial test classes are copied into
+                         generated-test-sources, so the org.sqlite package pattern follows
+                         the manifest without a second class list. The conformance package
+                         holds the harness tests. -->
                     <includes>
-                        <include>**/ResultSetTest.java</include>
-                        <include>**/RSMetaDataTest.java</include>
-                        <include>**/InsertQueryTest.java</include>
-                        <include>**/TursoHarnessTest.java</include>
+                        <include>**/sqlite/*Test.java</include>
+                        <include>**/conformance/*Test.java</include>
                     </includes>
                     <systemPropertyVariables>
                         <conformance.report.enabled>true</conformance.report.enabled>
@@ -249,10 +248,11 @@
                         <artifactId>maven-failsafe-plugin</artifactId>
                         <configuration>
                             <includes combine.self="override">
-                                <include>**/ResultSetTest.java</include>
-                                <include>**/RSMetaDataTest.java</include>
-                                <include>**/InsertQueryTest.java</include>
+                                <include>**/sqlite/*Test.java</include>
                             </includes>
+                            <excludes combine.self="override">
+                                <exclude>**/io/github/magnusp/turso/conformance/**</exclude>
+                            </excludes>
                             <systemPropertyVariables combine.self="override">
                                 <conformance.control.driver>xerial</conformance.control.driver>
                                 <conformance.report.enabled>true</conformance.report.enabled>
