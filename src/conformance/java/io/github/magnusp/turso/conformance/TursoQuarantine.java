@@ -265,6 +265,12 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
                             "xerial returns an empty 9-column procedure result set",
                             "https://github.com/magnusp/turso-jdbc/issues/21"));
 
+    /**
+     * Development switch for running quarantined methods against Turso. The guard tests stay
+     * active; only the method filter is bypassed.
+     */
+    static final String ENABLED_PROPERTY = "conformance.quarantine.enabled";
+
     private static final Set<String> EXCLUDED = ConcurrentHashMap.newKeySet();
 
     static void reset() {
@@ -278,6 +284,7 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
     @Override
     public FilterResult apply(TestDescriptor descriptor) {
         if (TursoControl.isEnabled()
+                || !quarantineEnabled()
                 || !(descriptor.getSource().orElse(null) instanceof MethodSource source)) {
             return FilterResult.included("Turso quarantine is inactive for this run");
         }
@@ -289,5 +296,9 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
             }
         }
         return FilterResult.included("not quarantined");
+    }
+
+    private static boolean quarantineEnabled() {
+        return !"false".equalsIgnoreCase(System.getProperty(ENABLED_PROPERTY));
     }
 }
