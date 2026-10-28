@@ -97,12 +97,6 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   private final JDBC4Connection connection;
 
-  @Nullable private PreparedStatement getTables = null;
-
-  @Nullable private PreparedStatement getTableTypes = null;
-
-  @Nullable private PreparedStatement getTypeInfo = null;
-
   @Nullable private PreparedStatement getCatalogs = null;
 
   @Nullable private PreparedStatement getSchemas = null;
@@ -813,7 +807,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                 + "NULL AS SELF_REFERENCING_COL_NAME, NULL AS REF_GENERATION FROM ("
                 + "SELECT 'sqlite_schema' AS name, 'SYSTEM TABLE' AS TABLE_TYPE "
                 + "UNION ALL SELECT name, 'SYSTEM TABLE' FROM sqlite_schema "
-                + "WHERE name LIKE 'sqlite\\_%' ESCAPE '\\' "
+                + "WHERE name LIKE 'sqlite\\_%' ESCAPE '\\' AND type IN ('table','view') "
                 + "UNION ALL SELECT name, CASE type WHEN 'view' THEN 'VIEW' ELSE 'TABLE' END "
                 + "FROM sqlite_schema WHERE type IN ('table','view') "
                 + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
@@ -1066,7 +1060,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
               pkName));
     }
     // xerial orders imported keys by parent table and keeps the engine order for that parent.
-    rows.sort(Comparator.comparing(row -> (String) row.get(2)));
+    rows.sort(
+        Comparator.comparing((List<Object> row) -> (String) row.get(2))
+            .thenComparingInt(row -> (Integer) row.get(4)));
     return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
   }
 
@@ -1122,6 +1118,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                 pkName));
       }
     }
+    rows.sort(
+        Comparator.comparing((List<Object> row) -> (String) row.get(9))
+            .thenComparingInt(row -> ((Number) row.get(4)).intValue()));
     return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
   }
 
