@@ -207,6 +207,91 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void primaryKeyParsingHandlesOrderingAndQuotedCommas(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "primary-key-parsing");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE ordered (a TEXT, b TEXT, CONSTRAINT ordered_pk PRIMARY KEY (a DESC))");
+      statement.executeUpdate(
+          "CREATE TABLE quoted (a TEXT, b TEXT, \"a,b\" TEXT,"
+              + " CONSTRAINT quoted_pk PRIMARY KEY (\"a,b\"))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet keys = metadata.getPrimaryKeys(null, null, "ordered")) {
+        assertThat(keys.next()).isTrue();
+        assertThat(keys.getString("COLUMN_NAME")).isEqualTo("a");
+        assertThat(keys.getString("PK_NAME")).isEqualTo("ordered_pk");
+        assertThat(keys.next()).isFalse();
+      }
+      try (ResultSet keys = metadata.getPrimaryKeys(null, null, "quoted")) {
+        assertThat(keys.next()).isTrue();
+        assertThat(keys.getString("COLUMN_NAME")).isEqualTo("a,b");
+        assertThat(keys.getString("PK_NAME")).isEqualTo("quoted_pk");
+        assertThat(keys.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void defaultLiteralDoesNotLookLikeAPrimaryKey(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "phantom-key");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE phantom (a TEXT DEFAULT 'PRIMARY KEY (x)', b TEXT)");
+
+      try (ResultSet keys = connection.getMetaData().getPrimaryKeys(null, null, "phantom")) {
+        assertThat(keys.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getColumnsHandlesQuotedIdentifiersAndTypes(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "quoted-columns");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE quoted (\"dq\"\"name\" VARCHAR(10), a \"VARCHAR(10)\", b [INTEGER])");
+
+      try (ResultSet columns = connection.getMetaData().getColumns(null, null, "quoted", "%")) {
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("dq\"name");
+        assertThat(columns.getString("TYPE_NAME")).isEqualTo("VARCHAR");
+        assertThat(columns.getInt("COLUMN_SIZE")).isEqualTo(10);
+
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("a");
+        assertThat(columns.getString("TYPE_NAME")).isEqualTo("VARCHAR");
+        assertThat(columns.getInt("COLUMN_SIZE")).isEqualTo(10);
+
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("b");
+        assertThat(columns.getString("TYPE_NAME")).isEqualTo("INTEGER");
+        assertThat(columns.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getTablesSkipsTempIndexesAndTriggers(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "temp-objects");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TEMP TABLE tt (a TEXT)");
+      statement.executeUpdate("CREATE INDEX ti ON tt(a)");
+      statement.executeUpdate(
+          "CREATE TRIGGER trg AFTER INSERT ON tt BEGIN UPDATE tt SET a = a; END");
+
+      List<String> tempTables = new ArrayList<>();
+      try (ResultSet rows =
+          connection.getMetaData().getTables(null, null, null, new String[] {"GLOBAL TEMPORARY"})) {
+        while (rows.next()) {
+          tempTables.add(rows.getString("TABLE_NAME"));
+        }
+      }
+      assertThat(tempTables).containsExactly("tt");
+    }
+  }
+
+  @Test
   void foreignKeysForUnknownTableAreEmpty(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "unknown-foreign-keys")) {
       DatabaseMetaData metadata = connection.getMetaData();

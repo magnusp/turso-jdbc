@@ -119,6 +119,49 @@ class MultiStatementTest {
   }
 
   @Test
+  void leadingEmptyStatementsAndCommentsKeepCountAndKeys(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "leading-trivia");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
+
+      assertThat(
+              statement.executeUpdate(
+                  ";;;-- lead\nINSERT INTO t (v) VALUES ('a');"
+                      + "/* gap */ INSERT INTO t (v) VALUES ('b')"))
+          .isEqualTo(2);
+      try (ResultSet keys = statement.getGeneratedKeys()) {
+        assertThat(keys.next()).isTrue();
+        assertThat(keys.getLong(1)).isEqualTo(1L);
+        assertThat(keys.next()).isTrue();
+        assertThat(keys.getLong(1)).isEqualTo(2L);
+        assertThat(keys.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void manualTransactionControlInsideTheBatchKeepsStateCoherent(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "manual-control");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (v TEXT)");
+      connection.setAutoCommit(false);
+
+      statement.executeUpdate("BEGIN");
+      statement.executeUpdate("INSERT INTO t (v) VALUES ('rolled back')");
+      connection.rollback();
+
+      statement.executeUpdate("INSERT INTO t (v) VALUES ('kept'); COMMIT");
+      connection.commit();
+
+      try (ResultSet rows = statement.executeQuery("SELECT v FROM t")) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString(1)).isEqualTo("kept");
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
   void laterStatementFailurePropagatesAfterEarlierStatementsRan(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "failing");
         Statement statement = connection.createStatement()) {

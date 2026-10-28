@@ -69,6 +69,16 @@ class ParameterMetaDataTest {
   }
 
   @Test
+  void addBatchKeepsTheLastBoundType() throws Exception {
+    try (Connection connection = DriverManager.getConnection("jdbc:turso::memory:");
+        PreparedStatement statement = connection.prepareStatement("select ?")) {
+      statement.setLong(1, 1L);
+      statement.addBatch();
+      assertThat(statement.getParameterMetaData().getParameterType(1)).isEqualTo(Types.BIGINT);
+    }
+  }
+
+  @Test
   void clearParametersForgetsBoundTypes() throws Exception {
     try (Connection connection = DriverManager.getConnection("jdbc:turso::memory:");
         PreparedStatement statement = connection.prepareStatement("select ?")) {
