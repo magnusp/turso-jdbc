@@ -119,6 +119,19 @@ class MultiStatementTest {
   }
 
   @Test
+  void withClauseInsertCountsAsAnUpdate(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "with-insert");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (v INTEGER)");
+
+      assertThat(
+              statement.executeUpdate(
+                  "WITH x AS (SELECT 1 AS v) INSERT INTO t SELECT v FROM x"))
+          .isEqualTo(1);
+    }
+  }
+
+  @Test
   void leadingEmptyStatementsAndCommentsKeepCountAndKeys(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "leading-trivia");
         Statement statement = connection.createStatement()) {
