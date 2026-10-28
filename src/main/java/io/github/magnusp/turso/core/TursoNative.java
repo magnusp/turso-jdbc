@@ -9,6 +9,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -21,12 +22,14 @@ import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTransientConnectionException;
 import java.sql.SQLTransientException;
+import java.util.HexFormat;
 import java.util.Locale;
 
 /**
@@ -59,9 +62,11 @@ public final class TursoNative {
   private static final int TYPE_BLOB = 4;
   private static final int TYPE_NULL = 5;
 
-  private static final String LIB_RESOURCE =
-      "/io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so";
+  private static final String NATIVE_DIR = "/io/github/magnusp/turso/native/linux-x86_64";
+  private static final String LIB_RESOURCE = NATIVE_DIR + "/libturso_sdk_kit.so";
   private static final String LIB_NAME = "libturso_sdk_kit.so";
+
+  private static final NativeManifest MANIFEST = NativeManifest.load();
 
   private static final StructLayout DB_CONFIG =
       MemoryLayout.structLayout(
@@ -89,7 +94,8 @@ public final class TursoNative {
 
   private static final Linker LINKER = Linker.nativeLinker();
 
-  private static final SymbolLookup LOOKUP = load();
+  private static final LoadedNative LOADED = load();
+  private static final SymbolLookup LOOKUP = LOADED.lookup();
 
   private static final MethodHandle H_VERSION =
       handle("turso_version", FunctionDescriptor.of(ADDRESS));
@@ -181,6 +187,23 @@ public final class TursoNative {
       handle("turso_statement_deinit", FunctionDescriptor.ofVoid(ADDRESS));
 
   private static final String VERSION = readVersion();
+
+  static {
+    String expected = MANIFEST.tursoSdkKitVersion();
+    if (!expected.equals(VERSION)) {
+      throw new ExceptionInInitializerError(
+          "Turso native version mismatch: "
+              + NativeManifest.RESOURCE_PATH
+              + " expects TURSO_SDK_KIT_VERSION="
+              + expected
+              + " but "
+              + LOADED.path()
+              + " reports turso_version()="
+              + VERSION
+              + ". Replace the native library or adopt the new pin with"
+              + " scripts/build-native.sh --update.");
+    }
+  }
 
   private TursoNative() {}
 
@@ -683,22 +706,127 @@ public final class TursoNative {
         descriptor);
   }
 
-  private static SymbolLookup load() {
+  private static LoadedNative load() {
+    if (!"linux-x86_64".equals(MANIFEST.platform())) {
+      throw new InternalError(
+          "Unsupported native manifest "
+              + NativeManifest.RESOURCE_PATH
+              + ": PLATFORM="
+              + MANIFEST.platform()
+              + ", expected linux-x86_64.");
+    }
+    if (!LIB_NAME.equals(MANIFEST.soFile())) {
+      throw new InternalError(
+          "Malformed native manifest "
+              + NativeManifest.RESOURCE_PATH
+              + ": SO_FILE="
+              + MANIFEST.soFile()
+              + " does not match the bundled resource "
+              + LIB_RESOURCE
+              + ".");
+    }
+
     Path path;
+    boolean verifyHash = false;
     String explicit = System.getProperty("turso.native.path");
     String directory = System.getProperty("turso.lib.path");
     if (explicit != null && !explicit.isBlank()) {
       path = Path.of(explicit).toAbsolutePath();
+      verifyHash = Boolean.parseBoolean(System.getProperty("turso.native.verifyHash", "false"));
+      requireFile(path);
+      if (verifyHash) {
+        verifyExplicit(path);
+      }
     } else if (directory != null && !directory.isBlank()) {
       path = Path.of(directory).resolve(LIB_NAME).toAbsolutePath();
+      verifyHash = Boolean.parseBoolean(System.getProperty("turso.native.verifyHash", "false"));
+      requireFile(path);
+      if (verifyHash) {
+        verifyExplicit(path);
+      }
     } else {
+      checkPlatform();
       path = extractLibrary();
     }
-    return SymbolLookup.libraryLookup(path, Arena.global());
+    return new LoadedNative(libraryLookup(path), path);
+  }
+
+  private static void requireFile(Path path) {
+    if (!Files.isRegularFile(path)) {
+      throw new InternalError(
+          "Native library not found at "
+              + path
+              + ". Set -Dturso.native.path to the .so file, -Dturso.lib.path to its directory,"
+              + " or omit both to use the library bundled in the jar.");
+    }
+  }
+
+  private static void verifyExplicit(Path path) {
+    long size;
+    String hash;
+    try {
+      size = Files.size(path);
+      hash = sha256(path);
+    } catch (IOException e) {
+      throw new InternalError("Unable to read native library " + path, e);
+    }
+    if (size != MANIFEST.soSize() || !hash.equals(MANIFEST.soSha256())) {
+      throw new InternalError(
+          "Native library "
+              + path
+              + " does not match "
+              + NativeManifest.RESOURCE_PATH
+              + ": expected size "
+              + MANIFEST.soSize()
+              + " and SHA-256 "
+              + MANIFEST.soSha256()
+              + ", got size "
+              + size
+              + " and SHA-256 "
+              + hash
+              + ".");
+    }
+  }
+
+  private static String sha256(Path path) throws IOException {
+    MessageDigest digest;
+    try {
+      digest = MessageDigest.getInstance("SHA-256");
+    } catch (NoSuchAlgorithmException e) {
+      throw new InternalError("SHA-256 is not available", e);
+    }
+    try (InputStream input = Files.newInputStream(path)) {
+      byte[] buffer = new byte[64 * 1024];
+      int read;
+      while ((read = input.read(buffer)) != -1) {
+        digest.update(buffer, 0, read);
+      }
+    }
+    return HexFormat.of().formatHex(digest.digest());
+  }
+
+  private static SymbolLookup libraryLookup(Path path) {
+    try {
+      return SymbolLookup.libraryLookup(path, Arena.global());
+    } catch (IllegalArgumentException | SecurityException | UnsatisfiedLinkError e) {
+      throw new InternalError(
+          "Unable to load "
+              + LIB_NAME
+              + " from "
+              + path
+              + ": this build requires glibc <= "
+              + MANIFEST.soGlibcMax()
+              + " (SO_GLIBC_MAX) and was built on "
+              + MANIFEST.buildImage()
+              + " (BUILD_IMAGE, glibc "
+              + MANIFEST.buildGlibc()
+              + "). Check `ldd --version` and use a host with a compatible glibc, or rebuild the"
+              + " library with scripts/build-native.sh.",
+          e);
+    }
   }
 
   private static Path extractLibrary() {
-    checkPlatform();
     try (InputStream input = TursoNative.class.getResourceAsStream(LIB_RESOURCE)) {
       if (input == null) {
         throw new InternalError(
@@ -707,17 +835,51 @@ public final class TursoNative {
                 + ". Build it with scripts/build-native.sh or set -Dturso.native.path.");
       }
       Path temp = Files.createTempFile("libturso_sdk_kit-", ".so");
-      Files.copy(input, temp, StandardCopyOption.REPLACE_EXISTING);
-      temp.toFile().deleteOnExit();
-      temp.toFile().setReadable(true, true);
-      temp.toFile().setWritable(true, true);
-      temp.toFile().setExecutable(true, true);
-      if (Files.size(temp) == 0) {
-        throw new IOException("extracted " + LIB_NAME + " is empty");
+      boolean complete = false;
+      try {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        long size = 0;
+        try (OutputStream output = Files.newOutputStream(temp)) {
+          byte[] buffer = new byte[64 * 1024];
+          int read;
+          while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read);
+            output.write(buffer, 0, read);
+            size += read;
+          }
+        }
+        String hash = HexFormat.of().formatHex(digest.digest());
+        if (size != MANIFEST.soSize() || !hash.equals(MANIFEST.soSha256())) {
+          throw new InternalError(
+              "Native library resource "
+                  + LIB_RESOURCE
+                  + " does not match "
+                  + NativeManifest.RESOURCE_PATH
+                  + ": expected size "
+                  + MANIFEST.soSize()
+                  + " and SHA-256 "
+                  + MANIFEST.soSha256()
+                  + ", got size "
+                  + size
+                  + " and SHA-256 "
+                  + hash
+                  + ". The jar is corrupt or was built with a mismatched manifest.");
+        }
+        temp.toFile().deleteOnExit();
+        temp.toFile().setReadable(true, true);
+        temp.toFile().setWritable(true, true);
+        temp.toFile().setExecutable(true, true);
+        complete = true;
+        return temp.toAbsolutePath();
+      } finally {
+        if (!complete) {
+          Files.deleteIfExists(temp);
+        }
       }
-      return temp.toAbsolutePath();
     } catch (IOException e) {
       throw new InternalError("Unable to extract " + LIB_NAME, e);
+    } catch (NoSuchAlgorithmException e) {
+      throw new InternalError("SHA-256 is not available", e);
     }
   }
 
@@ -739,9 +901,14 @@ public final class TursoNative {
   private static String readVersion() {
     try {
       MemorySegment ptr = (MemorySegment) H_VERSION.invokeExact();
+      if (ptr.equals(MemorySegment.NULL)) {
+        throw new IllegalStateException("turso_version() returned NULL");
+      }
       return ptr.reinterpret(Long.MAX_VALUE).getString(0);
     } catch (Throwable t) {
       throw new ExceptionInInitializerError(t);
     }
   }
+
+  private record LoadedNative(SymbolLookup lookup, Path path) {}
 }

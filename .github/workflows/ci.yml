@@ -17,16 +17,79 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
+      - name: Verify committed native library against its manifest
+        run: scripts/build-native.sh --check
       - run: mvn -B test
 
-  native:
-    runs-on: ubuntu-latest
+  packaged-jar:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - run: mvn -B clean package -DskipTests
+      - name: Verify the native library inside the jar
+        run: |
+          set -euo pipefail
+          manifest=src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties
+          expected="$(sed -n 's/^SO_SHA256=//p' "$manifest")"
+          so_file="$(sed -n 's/^SO_FILE=//p' "$manifest")"
+          jar="$(find target -maxdepth 1 -type f -name 'turso-jdbc-*.jar' | head -n 1)"
+          test -n "$jar"
+          actual="$(unzip -p "$jar" "io/github/magnusp/turso/native/linux-x86_64/$so_file" | sha256sum | awk '{print $1}')"
+          echo "jar: $jar"
+          echo "expected: $expected"
+          echo "actual:   $actual"
+          test "$actual" = "$expected"
+      - name: Runtime smoke on glibc 2.35
+        run: |
+          set -euo pipefail
+          jar="$(find target -maxdepth 1 -type f -name 'turso-jdbc-*.jar' | head -n 1)"
+          cat > /tmp/TursoSmoke.java <<'EOF'
+          import java.sql.Connection;
+          import java.sql.DriverManager;
+          import java.sql.ResultSet;
+          import java.sql.Statement;
+
+          public class TursoSmoke {
+            public static void main(String[] args) throws Exception {
+              try (Connection c = DriverManager.getConnection("jdbc:turso::memory:");
+                  Statement s = c.createStatement();
+                  ResultSet r = s.executeQuery("SELECT 1")) {
+                if (!r.next() || r.getInt(1) != 1) {
+                  throw new AssertionError("SELECT 1 failed");
+                }
+              }
+              System.out.println(
+                  "smoke ok, turso "
+                      + io.github.magnusp.turso.core.TursoNative.version());
+            }
+          }
+          EOF
+          java --enable-native-access=ALL-UNNAMED -cp "$jar" /tmp/TursoSmoke.java
+
+  native:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the native pin from the manifest
+        id: pin
+        run: |
+          set -euo pipefail
+          manifest=src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties
+          commit="$(sed -n 's/^TURSO_COMMIT=//p' "$manifest")"
+          rust="$(sed -n 's/^RUST_VERSION=//p' "$manifest")"
+          test -n "$commit"
+          test -n "$rust"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: tursodatabase/turso
-          ref: 23136ed501f40a6b442293566cd0544d47ca6d3d
+          ref: ${{ steps.pin.outputs.commit }}
           path: turso
       - uses: actions/setup-java@v4
         with:
@@ -34,5 +97,20 @@ jobs:
           java-version: "25"
           cache: maven
       - uses: dtolnay/rust-toolchain@stable
-      - run: scripts/build-native.sh turso
+        with:
+          toolchain: ${{ steps.pin.outputs.rust }}
+      - name: Build the native library from the pinned commit
+        run: scripts/build-native.sh --update turso
       - run: mvn -B test
+      - name: Verify the fresh build against the updated manifest
+        run: scripts/build-native.sh --check
+      - name: Record the fresh native identity
+        run: |
+          set -euo pipefail
+          manifest=src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties
+          {
+            echo "### Fresh native build"
+            echo '```'
+            grep -E '^(TURSO_COMMIT|TURSO_SDK_KIT_VERSION|SO_SIZE|SO_SHA256|SO_GLIBC_MAX|BUILD_IMAGE|BUILD_GLIBC|RUST_VERSION)=' "$manifest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
