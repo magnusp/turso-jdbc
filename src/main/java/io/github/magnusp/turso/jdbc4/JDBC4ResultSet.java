@@ -7,7 +7,6 @@ import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
@@ -67,6 +66,8 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   private boolean tableInfoLoaded;
   private final Map<String, ColumnInfo> columnInfo = new HashMap<>();
   private final Map<String, String> declaredTypesWithParams = new HashMap<>();
+  private boolean executed;
+  private int fetchSize;
 
   /**
    * Creates a new JDBC4ResultSet.
@@ -87,6 +88,9 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   @Override
   public void close() throws SQLException {
     resultSet.close();
+    if (statement != null && !statement.isClosed() && statement.isCloseOnCompletion()) {
+      statement.close();
+    }
   }
 
   @Override
@@ -324,26 +328,7 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   @Override
   @Nullable
   public Date getDate(String columnLabel) throws SQLException {
-    final Object result = resultSet.get(columnLabel);
-    wasNull = result == null;
-    if (result == null) {
-      return null;
-    }
-    return wrapTypeConversion(
-        () -> {
-          if (result instanceof byte[]) {
-            byte[] bytes = (byte[]) result;
-            if (bytes.length == Long.BYTES) {
-              long time = ByteBuffer.wrap(bytes).getLong();
-              return new Date(time);
-            }
-          }
-          // Try to parse as string if it's stored as TEXT
-          if (result instanceof String) {
-            return Date.valueOf((String) result);
-          }
-          throw new SQLException("Cannot convert value to Date: " + result.getClass());
-        });
+    return getDate(findColumn(columnLabel));
   }
 
   @Override
@@ -398,9 +383,19 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   }
 
   @Override
+  @Nullable
   public Object getObject(int columnIndex) throws SQLException {
     final Object result = resultSet.get(columnIndex);
     wasNull = result == null;
+    if (result instanceof Long value) {
+      if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+        return Integer.valueOf(value.intValue());
+      }
+      return value;
+    }
+    if (result instanceof Float value) {
+      return value.doubleValue();
+    }
     return result;
   }
 
@@ -466,25 +461,22 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   @Override
   public boolean isBeforeFirst() throws SQLException {
     // Empty ResultSet should return false per JDBC spec
-    if (resultSet.isEmpty()) {
-      return false;
-    }
-    return resultSet.isOpen() && resultSet.getRow() == 0 && !resultSet.isPastLastRow();
+    return resultSet.isBeforeFirst();
   }
 
   @Override
   public boolean isAfterLast() throws SQLException {
-    return resultSet.isOpen() && resultSet.isPastLastRow();
+    return !resultSet.isEmpty() && resultSet.isOpen() && resultSet.isPastLastRow();
   }
 
   @Override
   public boolean isFirst() throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    return resultSet.isOpen() && resultSet.getRow() == 1;
   }
 
   @Override
   public boolean isLast() throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    return resultSet.isLast();
   }
 
   @Override
@@ -529,22 +521,29 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
 
   @Override
   public void setFetchDirection(int direction) throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    if (direction != ResultSet.FETCH_FORWARD
+        && direction != ResultSet.FETCH_REVERSE
+        && direction != ResultSet.FETCH_UNKNOWN) {
+      throw new SQLException("Invalid fetch direction: " + direction);
+    }
   }
 
   @Override
   public int getFetchDirection() throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    return ResultSet.FETCH_FORWARD;
   }
 
   @Override
   public void setFetchSize(int rows) throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    if (rows < 0) {
+      throw new SQLException("Fetch size must not be negative");
+    }
+    this.fetchSize = rows;
   }
 
   @Override
   public int getFetchSize() throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    return fetchSize;
   }
 
   @Override
@@ -1297,12 +1296,15 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   @Override
   @SkipNullableCheck
   public <T> T unwrap(Class<T> iface) throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    if (iface.isInstance(this)) {
+      return iface.cast(this);
+    }
+    throw new SQLException("Cannot unwrap to " + iface.getName());
   }
 
   @Override
   public boolean isWrapperFor(Class<?> iface) throws SQLException {
-    throw new UnsupportedOperationException("not implemented");
+    return iface.isInstance(this);
   }
 
   @Override
@@ -1405,18 +1407,22 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
     return "";
   }
 
+  /** Marks that the owning statement has been executed at least once. */
+  void markExecuted() {
+    this.executed = true;
+  }
+
   @Override
   public int getColumnType(int column) throws SQLException {
     String declared = declaredType(column);
     if (declared != null) {
       return TursoTypeMapping.columnType(declared);
     }
-    Object value;
-    try {
-      value = resultSet.get(column);
-    } catch (SQLException e) {
-      return Types.OTHER;
+    if (!resultSet.hasLastStepReturnedRow()) {
+      // Without a row there is no runtime type; literals are only known after execution.
+      return executed ? literalColumnType(column) : Types.OTHER;
     }
+    Object value = resultSet.get(column);
     if (value == null) {
       return Types.OTHER;
     }
@@ -1436,6 +1442,25 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
     }
     if (value instanceof byte[]) {
       return Types.BLOB;
+    }
+    return Types.OTHER;
+  }
+
+  /** Infers the type of a plain SQL literal, used before the first row has been stepped. */
+  private int literalColumnType(int column) {
+    String item = expressionItem(column);
+    if (item == null) {
+      return Types.OTHER;
+    }
+    String value = item.trim();
+    if (value.startsWith("'")) {
+      return Types.VARCHAR;
+    }
+    if (value.matches("[+-]?\\d+")) {
+      return Types.INTEGER;
+    }
+    if (value.matches("[+-]?(?:\\d+\\.\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?")) {
+      return Types.REAL;
     }
     return Types.OTHER;
   }
@@ -1495,6 +1520,33 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
   }
 
   private String expressionType(int column) {
+    String item = expressionItem(column);
+    if (item == null) {
+      return null;
+    }
+    Matcher castMatcher = CAST_TYPE.matcher(item);
+    if (castMatcher.matches()) {
+      return castMatcher.group(1).trim();
+    }
+    String lower = item.toLowerCase(Locale.ROOT);
+    if (lower.equals("?") || lower.startsWith("? ")) {
+      return "NUMERIC";
+    }
+    if (lower.startsWith("datetime(")) {
+      return "TIMESTAMP";
+    }
+    if (lower.startsWith("time(")) {
+      return "TIME";
+    }
+    if (lower.startsWith("date(")) {
+      return "DATE";
+    }
+    return null;
+  }
+
+  /** Returns the n-th item of the SELECT list, or null when it cannot be determined. */
+  @Nullable
+  private String expressionItem(int column) {
     if (!(statement instanceof JDBC4Statement jdbcStatement)) {
       return null;
     }
@@ -1513,22 +1565,7 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
     if (column < 1 || column > items.size()) {
       return null;
     }
-    String item = items.get(column - 1).trim();
-    Matcher castMatcher = CAST_TYPE.matcher(item);
-    if (castMatcher.matches()) {
-      return castMatcher.group(1).trim();
-    }
-    String lower = item.toLowerCase(Locale.ROOT);
-    if (lower.startsWith("datetime(")) {
-      return "TIMESTAMP";
-    }
-    if (lower.startsWith("time(")) {
-      return "TIME";
-    }
-    if (lower.startsWith("date(")) {
-      return "DATE";
-    }
-    return null;
+    return items.get(column - 1).trim();
   }
 
   private void parseColumnTypes(String createSql) {

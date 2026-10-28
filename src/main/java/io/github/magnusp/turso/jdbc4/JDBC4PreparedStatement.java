@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.math.BigDecimal;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.util.ArrayList;
@@ -48,21 +47,35 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   public ResultSet executeQuery() throws SQLException {
     // TODO: check bindings etc
     requireNonNull(this.statement);
+    ensureOpen();
     statement.reset();
+    statement.setMaxRows(maxRows);
     bindParams(currentBatchParams);
+    this.resultSet.markExecuted();
+    this.currentResultSet = this.resultSet;
+    this.resultSetAvailable = true;
+    this.resultSetReturned = true;
+    this.updateCount = -1;
     return this.resultSet;
   }
 
   @Override
   public int executeUpdate() throws SQLException {
     requireNonNull(this.statement);
+    ensureOpen();
     generatedKeys.clear();
     statement.reset();
+    statement.setMaxRows(maxRows);
     bindParams(currentBatchParams);
     final TursoResultSet resultSet = statement.getResultSet();
     resultSet.consumeAll();
+    this.resultSet.markExecuted();
+    this.currentResultSet = null;
+    this.resultSetAvailable = false;
+    this.resultSetReturned = false;
     updateGeneratedKeys();
-    return Math.toIntExact(statement.changes());
+    updateCount = statement.changes();
+    return Math.toIntExact(updateCount);
   }
 
   /**
@@ -147,8 +160,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     if (x == null) {
       setParam(parameterIndex, null);
     } else {
-      long time = x.getTime();
-      setParam(parameterIndex, ByteBuffer.allocate(Long.BYTES).putLong(time).array());
+      setParam(parameterIndex, x.getTime());
     }
   }
 
@@ -158,8 +170,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     if (x == null) {
       setParam(parameterIndex, null);
     } else {
-      long time = x.getTime();
-      setParam(parameterIndex, ByteBuffer.allocate(Long.BYTES).putLong(time).array());
+      setParam(parameterIndex, x.getTime());
     }
   }
 
@@ -169,8 +180,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     if (x == null) {
       setParam(parameterIndex, null);
     } else {
-      long time = x.getTime();
-      setParam(parameterIndex, ByteBuffer.allocate(Long.BYTES).putLong(time).array());
+      setParam(parameterIndex, x.getTime());
     }
   }
 
@@ -332,10 +342,23 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     // TODO: check whether this is sufficient
     requireNonNull(statement);
     statement.reset();
+    statement.setMaxRows(maxRows);
     bindParams(params);
     boolean result = statement.execute();
-    updateGeneratedKeys();
-    updateCount = statement.changes();
+    this.resultSet.markExecuted();
+    if (result) {
+      this.currentResultSet = this.resultSet;
+      this.resultSetAvailable = true;
+      this.resultSetReturned = false;
+      updateCount = -1;
+    } else {
+      statement.getResultSet().consumeAll();
+      updateGeneratedKeys();
+      this.currentResultSet = null;
+      this.resultSetAvailable = false;
+      this.resultSetReturned = false;
+      updateCount = statement.changes();
+    }
     return result;
   }
 
@@ -347,29 +370,34 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   @Override
   public long[] executeLargeBatch() throws SQLException {
     requireNonNull(this.statement);
+    ensureOpen();
     if (batchQueryParams.isEmpty()) {
       return new long[0];
     }
     generatedKeys.clear();
     long[] updateCounts = new long[batchQueryParams.size()];
-    if (!isBatchCompatibleStatement(sql)) {
-      updateCounts[0] = EXECUTE_FAILED;
-      BatchUpdateException bue =
-          new BatchUpdateException(
-              "Batch commands cannot return result sets.",
+    for (int i = 0; i < batchQueryParams.size(); i++) {
+      try {
+        boolean producedResultSet = execute(batchQueryParams.get(i));
+        if (producedResultSet) {
+          statement.getResultSet().close();
+          currentResultSet = null;
+          resultSetAvailable = false;
+          resultSetReturned = false;
+          updateCounts[i] = EXECUTE_FAILED;
+          clearBatch();
+          throw new BatchUpdateException(
+              "Batch entry " + i + " (" + sql + ") was aborted. "
+                  + "Batch commands cannot return result sets.",
               "HY000", // General error SQL state
               0,
               Arrays.stream(updateCounts).mapToInt(l -> (int) l).toArray());
-      // Clear the batch after failure
-      clearBatch();
-      throw bue;
-    }
-    for (int i = 0; i < batchQueryParams.size(); i++) {
-      try {
-        statement.reset();
-        execute(batchQueryParams.get(i));
+        }
         updateCounts[i] = getUpdateCount();
+      } catch (BatchUpdateException e) {
+        throw e;
       } catch (SQLException e) {
+        updateCounts[i] = EXECUTE_FAILED;
         BatchUpdateException bue =
             new BatchUpdateException(
                 "Batch entry " + i + " (" + sql + ") failed: " + e.getMessage(),
@@ -642,12 +670,17 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
 
   @Override
   public void setClob(int parameterIndex, Reader reader) throws SQLException {
-    // TODO
+    setCharacterStream(parameterIndex, reader);
   }
 
   @Override
   public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {
-    // TODO
+    requireNonNull(this.statement);
+    if (inputStream == null) {
+      setParam(parameterIndex, null);
+      return;
+    }
+    setParam(parameterIndex, readBytes(inputStream));
   }
 
   @Override

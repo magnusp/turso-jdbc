@@ -13,7 +13,7 @@ public final class TursoStatement implements AutoCloseable {
   private final String sql;
   private final TursoConnection connection;
   private long statementPointer;
-  private TursoResultSet resultSet;
+  private final TursoResultSet resultSet;
   private String[] columnDeclaredTypes = new String[0];
 
   public TursoStatement(String sql, long statementPointer, TursoConnection connection) {
@@ -29,8 +29,8 @@ public final class TursoStatement implements AutoCloseable {
   }
 
   public boolean execute() throws SQLException {
-    resultSet.next();
-    return resultSet.hasLastStepReturnedRow();
+    // Decide from the prepared statement metadata so the first row is left for the result set.
+    return TursoNative.columnCount(openStatementPointer()) > 0;
   }
 
   synchronized TursoStepResult step() throws SQLException {
@@ -159,11 +159,12 @@ public final class TursoStatement implements AutoCloseable {
   public synchronized void reset() throws SQLException {
     long pointer = openStatementPointer();
     TursoNative.reset(pointer);
-    String[] names = resultSet.getColumnNames();
-    String[] types = resultSet.getColumnDeclaredTypes();
-    this.resultSet = TursoResultSet.of(this);
-    this.resultSet.setColumnNames(names);
-    this.resultSet.setColumnDeclaredTypes(types);
+    this.resultSet.reset();
+  }
+
+  /** Limits the number of rows the next execution of this statement returns. */
+  public void setMaxRows(long maxRows) {
+    this.resultSet.setMaxRows(maxRows);
   }
 
   public synchronized boolean isClosed() {

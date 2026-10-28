@@ -32,6 +32,10 @@ public final class TursoResultSet {
   // number of current row, starts at 1 (0 is used to represent loading data)
   private int row = 0;
   private boolean pastLastRow = false;
+  // A row that was stepped early (for example by isBeforeFirst/isLast) and is waiting for next().
+  @Nullable private TursoStepResult prefetchedRow;
+  // The step after the current row returned DONE without advancing the cursor.
+  private boolean doneAfterCurrentRow = false;
 
   @Nullable private TursoStepResult lastStepResult;
 
@@ -80,7 +84,20 @@ public final class TursoResultSet {
       return false; // completed ResultSet
     }
 
-    if (maxRows != 0 && row == maxRows) {
+    if (maxRows != 0 && row >= maxRows) {
+      return false;
+    }
+
+    if (prefetchedRow != null) {
+      lastStepResult = prefetchedRow;
+      prefetchedRow = null;
+      row++;
+      return true;
+    }
+
+    if (doneAfterCurrentRow) {
+      doneAfterCurrentRow = false;
+      pastLastRow = true;
       return false;
     }
 
@@ -105,6 +122,101 @@ public final class TursoResultSet {
       isEmptyResultSet = true;
     }
     return !pastLastRow;
+  }
+
+  /**
+   * Checks whether the cursor is before the first row, stepping once to find out whether the result
+   * set has any rows at all. Any fetched row is kept for the following {@link #next()} call.
+   */
+  public boolean isBeforeFirst() throws SQLException {
+    checkOpen();
+    if (row != 0 || isEmptyResultSet || pastLastRow) {
+      return false;
+    }
+    if (prefetchedRow != null) {
+      return true;
+    }
+    if (!doneAfterCurrentRow) {
+      prefetch();
+    }
+    return prefetchedRow != null;
+  }
+
+  /**
+   * Checks whether the cursor is on the last row. This performs a one-row lookahead; the looking
+   * ahead row is kept for the following {@link #next()} call.
+   */
+  public boolean isLast() throws SQLException {
+    checkOpen();
+    if (row == 0 || isEmptyResultSet) {
+      return false;
+    }
+    if (maxRows != 0 && row >= maxRows) {
+      return true;
+    }
+    if (pastLastRow) {
+      return false;
+    }
+    if (prefetchedRow != null) {
+      return false;
+    }
+    if (!doneAfterCurrentRow) {
+      prefetch();
+    }
+    return doneAfterCurrentRow;
+  }
+
+  private void prefetch() throws SQLException {
+    TursoStepResult result = this.statement.step();
+    log.debug("prefetched result: {}", result);
+    if (result.isRow()) {
+      prefetchedRow = result;
+      return;
+    }
+    if (result.isDone()) {
+      if (row == 0) {
+        isEmptyResultSet = true;
+      } else {
+        doneAfterCurrentRow = true;
+      }
+      return;
+    }
+    open = false;
+    String errorMessage = result.getErrorMessage();
+    if (errorMessage != null && !errorMessage.isEmpty()) {
+      throw new SQLException("step() returned invalid result: " + errorMessage);
+    }
+    throw new SQLException("step() returned invalid result: " + result);
+  }
+
+  /** Loads the first row on demand so that column getters work before {@link #next()}. */
+  private void ensureRowLoaded() throws SQLException {
+    if (row != 0 || isEmptyResultSet || pastLastRow || lastStepResult != null) {
+      return;
+    }
+    if (prefetchedRow != null) {
+      lastStepResult = prefetchedRow;
+      prefetchedRow = null;
+      row++;
+      return;
+    }
+    if (doneAfterCurrentRow) {
+      return;
+    }
+    lastStepResult = this.statement.step();
+    if (lastStepResult.isRow()) {
+      row++;
+    } else if (lastStepResult.isDone()) {
+      pastLastRow = true;
+      isEmptyResultSet = true;
+    } else if (lastStepResult.isInInvalidState()) {
+      open = false;
+      String errorMessage = lastStepResult.getErrorMessage();
+      if (errorMessage != null && !errorMessage.isEmpty()) {
+        throw new SQLException("step() returned invalid result: " + errorMessage);
+      }
+      throw new SQLException("step() returned invalid result: " + lastStepResult);
+    }
   }
 
   /** Checks whether the last step result has returned row result. */
@@ -147,6 +259,20 @@ public final class TursoResultSet {
     this.open = false;
   }
 
+  /**
+   * Reopens this result set for another execution of the owning statement. Column names and
+   * declared types are preserved.
+   */
+  public void reset() {
+    this.row = 0;
+    this.pastLastRow = false;
+    this.isEmptyResultSet = false;
+    this.doneAfterCurrentRow = false;
+    this.prefetchedRow = null;
+    this.lastStepResult = null;
+    this.open = true;
+  }
+
   public Object get(String columnName) throws SQLException {
     final int columnsLength = this.columnNames.length;
     for (int i = 0; i < columnsLength; i++) {
@@ -162,6 +288,8 @@ public final class TursoResultSet {
     if (!this.isOpen()) {
       throw new SQLException("ResultSet is not open");
     }
+
+    ensureRowLoaded();
 
     if (this.lastStepResult == null || this.lastStepResult.getResult() == null) {
       throw new SQLException("ResultSet is null");
@@ -189,6 +317,15 @@ public final class TursoResultSet {
 
   public void setColumnDeclaredTypes(String[] columnDeclaredTypes) {
     this.columnDeclaredTypes = columnDeclaredTypes;
+  }
+
+  /** Sets the maximum number of rows this result set returns. Zero means unlimited. */
+  public void setMaxRows(long maxRows) {
+    this.maxRows = maxRows;
+  }
+
+  public long getMaxRows() {
+    return maxRows;
   }
 
   @Override

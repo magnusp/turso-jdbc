@@ -1,6 +1,7 @@
 package io.github.magnusp.turso.jdbc4;
 
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.Date;
 import java.sql.SQLException;
@@ -41,6 +42,10 @@ final class JdbcValueConversions {
     }
     if (value instanceof Boolean bool) {
       return bool ? 1L : 0L;
+    }
+    Long epochMillis = epochMillis(value);
+    if (epochMillis != null) {
+      return epochMillis;
     }
     String text = String.valueOf(value).trim();
     try {
@@ -115,7 +120,14 @@ final class JdbcValueConversions {
     if (value instanceof Number number) {
       return new Date(number.longValue());
     }
+    Long epochMillis = epochMillis(value);
+    if (epochMillis != null) {
+      return new Date(epochMillis);
+    }
     String text = String.valueOf(value).trim();
+    if (text.isEmpty()) {
+      return null;
+    }
     String date = text.length() > 10 ? text.substring(0, 10) : text;
     try {
       return Date.valueOf(date);
@@ -134,7 +146,14 @@ final class JdbcValueConversions {
     if (value instanceof Number number) {
       return new Time(number.longValue());
     }
+    Long epochMillis = epochMillis(value);
+    if (epochMillis != null) {
+      return new Time(epochMillis);
+    }
     String text = String.valueOf(value).trim();
+    if (text.isEmpty()) {
+      return null;
+    }
     int space = text.indexOf(' ');
     if (space >= 0) {
       text = text.substring(space + 1);
@@ -159,7 +178,14 @@ final class JdbcValueConversions {
     if (value instanceof Number number) {
       return new Timestamp(number.longValue());
     }
+    Long epochMillis = epochMillis(value);
+    if (epochMillis != null) {
+      return new Timestamp(epochMillis);
+    }
     String text = String.valueOf(value).trim();
+    if (text.isEmpty()) {
+      return null;
+    }
     if (text.length() == 10) {
       text = text + " 00:00:00";
     }
@@ -168,6 +194,14 @@ final class JdbcValueConversions {
     } catch (IllegalArgumentException e) {
       throw new SQLException("Bad value for type Timestamp: " + text, e);
     }
+  }
+
+  /** Decodes the legacy 8-byte big-endian epoch-millis blob, or null for other values. */
+  private static Long epochMillis(Object value) {
+    if (value instanceof byte[] bytes && bytes.length == Long.BYTES) {
+      return ByteBuffer.wrap(bytes).getLong();
+    }
+    return null;
   }
 
   static LocalDate toLocalDate(Object value) throws SQLException {
