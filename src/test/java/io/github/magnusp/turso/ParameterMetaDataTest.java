@@ -102,7 +102,7 @@ class ParameterMetaDataTest {
   }
 
   @Test
-  void fixedAttributesMatchXerial() throws Exception {
+  void fixedAttributesFollowJdbcDefaults() throws Exception {
     try (Connection connection = DriverManager.getConnection("jdbc:turso::memory:");
         PreparedStatement statement = connection.prepareStatement("select ?")) {
       statement.setInt(1, 1);

@@ -1056,7 +1056,8 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
               foreignKeyName(fkNames, group),
               pkName));
     }
-    // xerial orders imported keys by parent table and keeps the engine order for that parent.
+    // Order imported keys by parent table for stable results, keeping the engine order within a
+    // parent.
     rows.sort(
         Comparator.comparing((List<Object> row) -> (String) row.get(2))
             .thenComparingInt(row -> (Integer) row.get(4)));

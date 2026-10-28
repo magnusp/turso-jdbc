@@ -16,7 +16,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Database metadata behaviour that the xerial conformance suite only checks indirectly. */
+/** Database metadata behaviour covered directly rather than only through the reference suite. */
 class DatabaseMetaDataTest {
 
   private static Connection connect(Path dir, String name) throws SQLException {

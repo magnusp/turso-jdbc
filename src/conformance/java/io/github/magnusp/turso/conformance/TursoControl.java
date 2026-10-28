@@ -6,12 +6,13 @@ import java.sql.SQLException;
 import java.util.Enumeration;
 
 /**
- * Selects the upstream xerial driver for the parity control run.
+ * Selects the reference xerial driver for the reference probe run.
  *
- * <p>The control run compiles the same pinned xerial test tree as the Turso run but executes it
- * against sqlite-jdbc 3.53.4.0. Both drivers are on the test class path, so the control run first
- * removes every driver visible to this class loader and then registers the pinned xerial driver
- * explicitly. That keeps {@code jdbc:sqlite:} URLs from reaching the Turso shim.
+ * <p>The probe run compiles the same exported test tree as the Turso run but executes it against
+ * sqlite-jdbc 3.53.4.0. Both drivers are on the test class path, so the probe first removes every
+ * driver visible to this class loader and then registers the pinned reference driver explicitly.
+ * That keeps {@code jdbc:sqlite:} URLs from reaching the Turso shim. The probe describes the
+ * reference implementation; it is not a target for Turso.
  */
 final class TursoControl {
 
@@ -36,10 +37,10 @@ final class TursoControl {
             }
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(
-                    "Xerial control run could not load " + XERIAL_DRIVER, e);
+                    "Reference probe could not load " + XERIAL_DRIVER, e);
         } catch (SQLException e) {
             throw new IllegalStateException(
-                    "Xerial control run could not register " + XERIAL_DRIVER, e);
+                    "Reference probe could not register " + XERIAL_DRIVER, e);
         }
         verify();
     }
@@ -63,7 +64,7 @@ final class TursoControl {
                     DriverManager.deregisterDriver(driver);
                 } catch (SQLException e) {
                     throw new IllegalStateException(
-                            "Xerial control run could not deregister " + driver, e);
+                            "Reference probe could not deregister " + driver, e);
                 }
             }
         }
@@ -74,7 +75,7 @@ final class TursoControl {
             Driver driver = DriverManager.getDriver(PROBE_URL);
             if (!XERIAL_DRIVER.equals(driver.getClass().getName())) {
                 throw new IllegalStateException(
-                        "Xerial control run resolved "
+                        "Reference probe resolved "
                                 + driver.getClass().getName()
                                 + " for "
                                 + PROBE_URL
@@ -83,7 +84,7 @@ final class TursoControl {
             }
         } catch (SQLException e) {
             throw new IllegalStateException(
-                    "Xerial control run found no driver for " + PROBE_URL, e);
+                    "Reference probe found no driver for " + PROBE_URL, e);
         }
     }
 }
