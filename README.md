@@ -66,20 +66,24 @@ file on first use.
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 43 tests with
-0 failures and 1 upstream skip:
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 219 tests
+with 0 failures, 3 skips, and 39 quarantined methods. The report accounts for 258 total
+(`total = executed + quarantined`):
 
-- 21 vendored xerial `ResultSetTest`
-- 3 vendored xerial `InsertQueryTest` (1 disabled upstream)
-- 13 vendored xerial `RSMetaDataTest`
+- 13 vendored xerial test classes from the pinned tree
 - 6 conformance harness tests (`TursoHarnessTest`)
+- 3 quarantine guard tests (`TursoQuarantineTest`)
 
-The `xerial-control` profile skips the fast suite and runs the 37 pinned xerial methods against
-`org.xerial:sqlite-jdbc:3.53.4.0`: 36 pass, 1 upstream skip, 0 quarantined.
+The three skips are two upstream `@Disabled` methods and one upstream assumption that the engine
+build was compiled with `JDBC_EXTENSIONS`.
+
+The `xerial-control` profile skips the fast suite and runs the same 13 classes against
+`org.xerial:sqlite-jdbc:3.53.4.0`: 251 executed, 249 pass, 2 upstream `@Disabled` skips, 0
+quarantined, `control=true`.
 
 ### Xerial conformance harness
 
-The three test classes and `Utils` come from a pinned export of `xerial/sqlite-jdbc` tag
+The 13 test classes and `Utils` come from a pinned export of `xerial/sqlite-jdbc` tag
 `3.53.4.0`, commit `cab7981c19ce04d691f0675f0b2586afc2bbf803`. `target/generated-test-sources/xerial`
 is populated from `upstream-xerial_sqlite-jdbc.manifest`; the committed upstream tree is checked
 on every build:
@@ -101,11 +105,13 @@ Turso:
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
 checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
-non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` can exclude
-explicit xerial methods with a reason, upstream difference, and issue; it is inactive in the
-control run and currently has no entries. `TursoConformanceReport` writes
-`target/conformance-summary.txt` with total, executed, passed, failed, skipped, and quarantined
-counts (`total = executed + quarantined`). Failsafe reports are under `target/failsafe-reports`.
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 39
+explicit xerial methods with a reason, upstream difference, and issue link. The entries cover the
+missing DatabaseMetaData and ParameterMetaData surfaces (#14, #15, #16, #17, #21) and two engine
+schema limits (#19). `TursoQuarantineTest` rejects a blank or stale entry, and the filter is
+inactive in the control run. `TursoConformanceReport` writes `target/conformance-summary.txt` with
+`control`, total, executed, passed, failed, skipped, and quarantined counts
+(`total = executed + quarantined`). Failsafe reports are under `target/failsafe-reports`.
 
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
