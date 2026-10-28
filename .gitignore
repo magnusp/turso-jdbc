@@ -1,0 +1,11 @@
+target/
+*.class
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+:memory:
+file::memory:?cache=shared
+.idea/
+.vscode/
+*.iml
