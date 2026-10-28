@@ -15,7 +15,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
-import io.github.magnusp.turso.core.TursoResultSet;
+import io.github.magnusp.turso.core.TursoConnection;
 import io.github.magnusp.turso.core.TursoStatement;
 
 /** JDBC 4 Statement implementation for Turso databases. */
@@ -118,23 +118,43 @@ public class JDBC4Statement implements Statement {
   @Override
   public int executeUpdate(String sql) throws SQLException {
     ensureOpen();
-    final List<String> statements = splitStatements(sql);
-    if (statements.size() > 1) {
-      long total = 0;
-      for (String command : statements) {
-        total += executeUpdate(command);
+    if (!batchExecution) {
+      generatedKeys.clear();
+    }
+    closePreviousStatement();
+
+    long total = 0;
+    String remaining = sql;
+    while (true) {
+      TursoConnection.ParsedStatement parsed =
+          connection.getTursoConnection().prepareFirst(remaining);
+      TursoStatement current = parsed.statement();
+      if (current == null) {
+        break;
       }
-      return (int) total;
+      statement = current;
+      try {
+        current.initializeColumnMetadata();
+        current.getResultSet().setMaxRows(maxRows);
+        final long previousChanges = current.totalChanges();
+        current.execute();
+        current.getResultSet().consumeAll();
+        updateGeneratedKeys();
+        total += current.totalChanges() - previousChanges;
+      } finally {
+        closePreviousStatement();
+      }
+      if (parsed.tail() <= 0) {
+        break;
+      }
+      remaining = remaining.substring(parsed.tail());
     }
 
-    final long previousTotalChanges = statement == null ? 0L : statement.totalChanges();
-
-    execute(sql);
-    requireNonNull(statement, "statement should not be null after running execute method");
-    final TursoResultSet resultSet = statement.getResultSet();
-    resultSet.consumeAll();
-
-    return (int) (statement.totalChanges() - previousTotalChanges);
+    updateCount = total;
+    currentResultSet = null;
+    resultSetAvailable = false;
+    resultSetReturned = false;
+    return (int) total;
   }
 
   @Override
@@ -405,41 +425,6 @@ public class JDBC4Statement implements Statement {
     }
   }
 
-  private static List<String> splitStatements(String sql) {
-    List<String> statements = new ArrayList<>();
-    StringBuilder current = new StringBuilder();
-    char quote = 0;
-    for (int i = 0; i < sql.length(); i++) {
-      char c = sql.charAt(i);
-      if (quote != 0) {
-        current.append(c);
-        if (c == quote) {
-          if (i + 1 < sql.length() && sql.charAt(i + 1) == quote) {
-            current.append(sql.charAt(++i));
-          } else {
-            quote = 0;
-          }
-        }
-      } else if (c == '\'' || c == '"' || c == '`') {
-        quote = c;
-        current.append(c);
-      } else if (c == ';') {
-        addStatement(statements, current);
-      } else {
-        current.append(c);
-      }
-    }
-    addStatement(statements, current);
-    return statements;
-  }
-
-  private static void addStatement(List<String> statements, StringBuilder current) {
-    if (!current.toString().isBlank()) {
-      statements.add(current.toString());
-    }
-    current.setLength(0);
-  }
-
   @Override
   public Connection getConnection() {
     return connection;
@@ -452,8 +437,6 @@ public class JDBC4Statement implements Statement {
 
   @Override
   public boolean getMoreResults(int current) throws SQLException {
-    requireNonNull(statement, "statement should not be null");
-
     if (current == Statement.KEEP_CURRENT_RESULT || current == Statement.CLOSE_ALL_RESULTS) {
       throw new SQLFeatureNotSupportedException(
           "Argument not supported: Statement.KEEP_CURRENT_RESULT or Statement.CLOSE_ALL_RESULTS");
@@ -462,7 +445,9 @@ public class JDBC4Statement implements Statement {
       throw new SQLException("Invalid argument");
     }
 
-    statement.getResultSet().close();
+    if (statement != null) {
+      statement.getResultSet().close();
+    }
     currentResultSet = null;
     resultSetAvailable = false;
     resultSetReturned = false;
