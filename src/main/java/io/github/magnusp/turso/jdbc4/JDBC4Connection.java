@@ -262,7 +262,7 @@ public final class JDBC4Connection implements Connection {
   public CallableStatement prepareCall(
       String sql, int resultSetType, int resultSetConcurrency, int resultSetHoldability)
       throws SQLException {
-    throw new SQLException("turso does not support stored procedures");
+    throw new SQLFeatureNotSupportedException("turso does not support stored procedures", "0A000");
   }
 
   @Override

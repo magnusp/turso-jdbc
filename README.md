@@ -57,11 +57,12 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-The test suite currently runs 56 tests with 0 failures and 1 upstream-disabled test:
+The test suite currently runs 62 tests with 0 failures and 1 upstream-disabled test:
 
 - 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
 - 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
+- 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 - 21 vendored xerial `ResultSetTest`
 - 3 vendored xerial `InsertQueryTest` (1 disabled upstream)
 - 13 vendored xerial `RSMetaDataTest`
@@ -151,7 +152,11 @@ provide.
 
 - Linux x86_64 only.
 - No `Statement.cancel()` or query timeout. The C ABI has no interrupt entry point.
-- No LOB streaming, updatable result sets, `CallableStatement`, XA, or connection pooling.
+- No LOB streaming, updatable result sets, XA, or connection pooling.
+- No stored procedures or `CallableStatement`. All `prepareCall` overloads throw
+  `SQLFeatureNotSupportedException` with SQLState `0A000`. `DatabaseMetaData.getProcedures` and
+  `getProcedureColumns` throw the same exception, and `supportsStoredProcedures()` and
+  `allProceduresAreCallable()` return `false`.
 - `DatabaseMetaData.getImportedKeys`, `getExportedKeys`, `getCrossReference`, and `getTypeInfo`
   are not implemented.
 - Encryption entry points exist in the core but are untested.
