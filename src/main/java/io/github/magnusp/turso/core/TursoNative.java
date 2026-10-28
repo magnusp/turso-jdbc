@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTransientConnectionException;
@@ -655,10 +656,7 @@ public final class TursoNative {
           new SQLIntegrityConstraintViolationException(message, "23000", 19);
       case BUSY, BUSY_SNAPSHOT ->
           new SQLTransientConnectionException(message, "08001", 5);
-      case ERROR ->
-          lower.contains("syntax") || lower.contains("near")
-              ? new SQLSyntaxErrorException(message, "42000", 1)
-              : new SQLException(message, "HY000", 1);
+      case ERROR -> errorDetail(message, lower);
       case MISUSE -> new SQLException(message, "HY000", 21);
       case READONLY -> new SQLException(message, "HY000", 8);
       case DATABASE_FULL -> new SQLException(message, "HY000", 13);
@@ -668,6 +666,16 @@ public final class TursoNative {
       case INTERRUPT -> new SQLTransientException(message, "57014");
       default -> new SQLException(message, "HY000", status & 0xff);
     };
+  }
+
+  private static SQLException errorDetail(String message, String lowerDetail) {
+    if (lowerDetail.contains("without rowid tables are an experimental feature")
+        || lowerDetail.contains("stored generated columns are not supported")) {
+      return new SQLFeatureNotSupportedException(message, "0A000");
+    }
+    return lowerDetail.contains("syntax") || lowerDetail.contains("near")
+        ? new SQLSyntaxErrorException(message, "42000", 1)
+        : new SQLException(message, "HY000", 1);
   }
 
   private static String readText(MemorySegment stmt, int index) throws Throwable {
