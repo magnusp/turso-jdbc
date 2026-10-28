@@ -59,15 +59,19 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 25 tests with 0 failures and 0 skips:
+`mvn test` runs 49 tests with 0 failures and 0 skips:
 
 - 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
+- 7 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
+- 7 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
+- 6 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
+- 4 experimental feature tests (`io.github.magnusp.turso.ExperimentalFeatureTest`)
 - 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 219 tests
-with 0 failures, 3 skips, and 39 quarantined methods. The report accounts for 258 total
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 244 tests
+with 0 failures, 3 skips, and 16 quarantined methods. The report accounts for 260 total
 (`total = executed + quarantined`):
 
 - 13 vendored xerial test classes from the pinned tree
@@ -105,13 +109,15 @@ Turso:
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
 checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
-non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 39
-explicit xerial methods with a reason, upstream difference, and issue link. The entries cover the
-missing DatabaseMetaData and ParameterMetaData surfaces (#14, #15, #16, #17, #21) and two engine
-schema limits (#19). `TursoQuarantineTest` rejects a blank or stale entry, and the filter is
-inactive in the control run. `TursoConformanceReport` writes `target/conformance-summary.txt` with
-`control`, total, executed, passed, failed, skipped, and quarantined counts
-(`total = executed + quarantined`). Failsafe reports are under `target/failsafe-reports`.
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 16
+explicit xerial methods with a reason, upstream difference, and issue link. The entries cover
+folded identifier case (#23), two experimental engine schema features (#19), and the deliberate
+stored-procedure contract (#21). `TursoQuarantineTest` rejects a blank or stale entry, and the
+filter is inactive in the control run. Pass `-Dconformance.quarantine.enabled=false` to run the
+quarantined methods against Turso while developing. `TursoConformanceReport` writes
+`target/conformance-summary.txt` with `control`, total, executed, passed, failed, skipped, and
+quarantined counts (`total = executed + quarantined`). Failsafe reports are under
+`target/failsafe-reports`.
 
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
@@ -206,8 +212,13 @@ provide.
   `SQLFeatureNotSupportedException` with SQLState `0A000`. `DatabaseMetaData.getProcedures` and
   `getProcedureColumns` throw the same exception, and `supportsStoredProcedures()` and
   `allProceduresAreCallable()` return `false`.
-- `DatabaseMetaData.getImportedKeys`, `getExportedKeys`, `getCrossReference`, and `getTypeInfo`
-  are not implemented.
+- `WITHOUT ROWID` tables and stored generated columns are rejected by this engine build. The
+  driver reports both as `SQLFeatureNotSupportedException` with SQLState `0A000` instead of a
+  parse error. Virtual generated columns work.
+- `Statement.executeUpdate` accepts semicolon-separated statements and returns the combined
+  affected-row count. `Statement.execute` and `executeQuery` execute one statement.
+- The engine folds every identifier to lower case, including quoted names. Metadata reports the
+  canonical stored name, so a table created as `MyTable` appears as `mytable`.
 - Encryption entry points exist in the core but are untested.
 - Metadata is best effort. Column types and precision come from the declared type in
   `sqlite_schema.sql`; expressions fall back to the value's storage class.
