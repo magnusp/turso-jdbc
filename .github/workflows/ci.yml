@@ -66,7 +66,7 @@ jobs:
           if-no-files-found: warn
 
   packaged-jar:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -116,7 +116,7 @@ jobs:
           java --enable-native-access=ALL-UNNAMED -cp "$jar" /tmp/TursoSmoke.java
 
   native:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - name: Read the native pin from the manifest
