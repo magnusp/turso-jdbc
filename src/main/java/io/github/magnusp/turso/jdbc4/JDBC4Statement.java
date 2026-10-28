@@ -121,40 +121,48 @@ public class JDBC4Statement implements Statement {
     if (!batchExecution) {
       generatedKeys.clear();
     }
-    closePreviousStatement();
+    return this.withConnectionTimeout(
+        () -> {
+          try {
+            connectionLock.lock();
+            closePreviousStatement();
 
-    long total = 0;
-    String remaining = sql;
-    while (true) {
-      TursoConnection.ParsedStatement parsed =
-          connection.getTursoConnection().prepareFirst(remaining);
-      TursoStatement current = parsed.statement();
-      if (current == null) {
-        break;
-      }
-      statement = current;
-      try {
-        current.initializeColumnMetadata();
-        current.getResultSet().setMaxRows(maxRows);
-        final long previousChanges = current.totalChanges();
-        current.execute();
-        current.getResultSet().consumeAll();
-        updateGeneratedKeys();
-        total += current.totalChanges() - previousChanges;
-      } finally {
-        closePreviousStatement();
-      }
-      if (parsed.tail() <= 0) {
-        break;
-      }
-      remaining = remaining.substring(parsed.tail());
-    }
+            long total = 0;
+            String remaining = sql;
+            while (true) {
+              TursoConnection.ParsedStatement parsed =
+                  connection.getTursoConnection().prepareFirst(remaining);
+              TursoStatement current = parsed.statement();
+              if (current == null) {
+                break;
+              }
+              statement = current;
+              try {
+                current.initializeColumnMetadata();
+                current.getResultSet().setMaxRows(maxRows);
+                final long previousChanges = current.totalChanges();
+                current.execute();
+                current.getResultSet().consumeAll();
+                updateGeneratedKeys();
+                total += current.totalChanges() - previousChanges;
+              } finally {
+                closePreviousStatement();
+              }
+              if (parsed.tail() <= 0) {
+                break;
+              }
+              remaining = remaining.substring(parsed.tail());
+            }
 
-    updateCount = total;
-    currentResultSet = null;
-    resultSetAvailable = false;
-    resultSetReturned = false;
-    return (int) total;
+            updateCount = total;
+            currentResultSet = null;
+            resultSetAvailable = false;
+            resultSetReturned = false;
+            return (int) total;
+          } finally {
+            connectionLock.unlock();
+          }
+        });
   }
 
   @Override
