@@ -25,8 +25,8 @@ choices, not JDBC requirements.
 
 ## Status
 
-This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the JDBC
-surface exercised by the test suite, not the whole JDBC 4.3 API.
+This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the part
+of JDBC 4.3 that its tests exercise, not the whole API.
 
 ## Usage
 
