@@ -167,6 +167,46 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void getTablesOmitsImplicitIndexes(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "implicit-indexes");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE composite (a INTEGER, b INTEGER, PRIMARY KEY (a, b))");
+
+      List<String> tables = new ArrayList<>();
+      try (ResultSet rows =
+          connection.getMetaData().getTables(null, null, null, new String[] {"TABLE", "SYSTEM TABLE"})) {
+        while (rows.next()) {
+          tables.add(rows.getString("TABLE_NAME"));
+        }
+      }
+      assertThat(tables).contains("composite", "sqlite_schema");
+      assertThat(tables).noneMatch(name -> name.startsWith("sqlite_autoindex_"));
+    }
+  }
+
+  @Test
+  void exportedKeysAreOrderedByChildTable(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "exported-order");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE books (id INTEGER, previous INTEGER,"
+              + " CONSTRAINT books_pk PRIMARY KEY (id),"
+              + " CONSTRAINT books_previous FOREIGN KEY (previous) REFERENCES books (id))");
+      statement.executeUpdate(
+          "CREATE TABLE bookauthors (bookid INTEGER,"
+              + " CONSTRAINT bookauthors_book FOREIGN KEY (bookid) REFERENCES books (id))");
+
+      List<String> children = new ArrayList<>();
+      try (ResultSet rows = connection.getMetaData().getExportedKeys(null, null, "books")) {
+        while (rows.next()) {
+          children.add(rows.getString("FKTABLE_NAME"));
+        }
+      }
+      assertThat(children).containsExactly("bookauthors", "books");
+    }
+  }
+
+  @Test
   void foreignKeysForUnknownTableAreEmpty(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "unknown-foreign-keys")) {
       DatabaseMetaData metadata = connection.getMetaData();
