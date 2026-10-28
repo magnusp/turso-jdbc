@@ -3,8 +3,6 @@ package io.github.magnusp.turso.jdbc4;
 import java.sql.JDBCType;
 import java.sql.ParameterMetaData;
 import java.sql.SQLException;
-import java.sql.Types;
-import io.github.magnusp.turso.annotations.Nullable;
 
 /** Parameter metadata derived from the values bound to a prepared statement. */
 final class JDBC4ParameterMetaData implements ParameterMetaData {
@@ -22,31 +20,31 @@ final class JDBC4ParameterMetaData implements ParameterMetaData {
 
   @Override
   public int isNullable(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return parameterNullable;
   }
 
   @Override
   public boolean isSigned(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return true;
   }
 
   @Override
   public int getPrecision(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return 0;
   }
 
   @Override
   public int getScale(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return 0;
   }
 
   @Override
   public int getParameterType(int param) throws SQLException {
-    return jdbcType(parameterValue(param));
+    return parameterType(param);
   }
 
   @Override
@@ -56,13 +54,13 @@ final class JDBC4ParameterMetaData implements ParameterMetaData {
 
   @Override
   public String getParameterClassName(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return "java.lang.String";
   }
 
   @Override
   public int getParameterMode(int param) throws SQLException {
-    parameterValue(param);
+    parameterType(param);
     return parameterModeIn;
   }
 
@@ -79,30 +77,11 @@ final class JDBC4ParameterMetaData implements ParameterMetaData {
     return iface.isInstance(this);
   }
 
-  private Object parameterValue(int param) throws SQLException {
-    Object value = statement.parameterValue(param);
-    if (!statement.isParameterSet(param)) {
+  private int parameterType(int param) throws SQLException {
+    int type = statement.parameterType(param);
+    if (type == JDBC4PreparedStatement.UNSET) {
       throw new SQLException("No parameter has been set yet");
     }
-    return value;
-  }
-
-  private static int jdbcType(@Nullable Object value) {
-    if (value == null) {
-      return Types.NULL;
-    }
-    if (value instanceof Integer
-        || value instanceof Short
-        || value instanceof Byte
-        || value instanceof Boolean) {
-      return Types.INTEGER;
-    }
-    if (value instanceof Long) {
-      return Types.BIGINT;
-    }
-    if (value instanceof Double || value instanceof Float) {
-      return Types.REAL;
-    }
-    return Types.VARCHAR;
+    return type;
   }
 }

@@ -22,8 +22,10 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   private final String sql;
   private final JDBC4ResultSet resultSet;
 
+  static final int UNSET = -1;
+
   private final int paramCount;
-  private final boolean[] parameterSet;
+  private final int[] parameterTypes;
   private Object[] currentBatchParams;
   private final ArrayList<Object[]> batchQueryParams = new ArrayList<>();
 
@@ -40,7 +42,8 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     this.statement = connection.prepare(sql);
     this.resultSet = new JDBC4ResultSet(this.statement.getResultSet(), this);
     this.paramCount = statement.parameterCount();
-    this.parameterSet = new boolean[paramCount];
+    this.parameterTypes = new int[paramCount];
+    Arrays.fill(parameterTypes, UNSET);
     this.currentBatchParams = new Object[paramCount];
   }
 
@@ -88,7 +91,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     requireNonNull(this.statement);
     checkParameterIndex(parameterIndex);
     currentBatchParams[parameterIndex - 1] = object;
-    parameterSet[parameterIndex - 1] = true;
+    parameterTypes[parameterIndex - 1] = parameterTypeOf(object);
   }
 
   private void checkParameterIndex(int parameterIndex) throws SQLException {
@@ -97,15 +100,29 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     }
   }
 
-  /** Returns the last value bound to a parameter, or null when the value itself was null. */
-  @Nullable
-  Object parameterValue(int parameterIndex) throws SQLException {
+  /** Returns the JDBC type of the last value bound to a parameter, or {@link #UNSET}. */
+  int parameterType(int parameterIndex) throws SQLException {
     checkParameterIndex(parameterIndex);
-    return currentBatchParams[parameterIndex - 1];
+    return parameterTypes[parameterIndex - 1];
   }
 
-  boolean isParameterSet(int parameterIndex) {
-    return parameterSet[parameterIndex - 1];
+  private static int parameterTypeOf(@Nullable Object value) {
+    if (value == null) {
+      return Types.NULL;
+    }
+    if (value instanceof Integer
+        || value instanceof Short
+        || value instanceof Byte
+        || value instanceof Boolean) {
+      return Types.INTEGER;
+    }
+    if (value instanceof Long) {
+      return Types.BIGINT;
+    }
+    if (value instanceof Double || value instanceof Float) {
+      return Types.REAL;
+    }
+    return Types.VARCHAR;
   }
 
   int parameterCount() {
@@ -297,14 +314,13 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   @Override
   public void clearParameters() {
     this.currentBatchParams = new Object[paramCount];
-    Arrays.fill(parameterSet, false);
+    Arrays.fill(parameterTypes, UNSET);
   }
 
   @Override
   public void clearBatch() throws SQLException {
     this.batchQueryParams.clear();
     this.currentBatchParams = new Object[paramCount];
-    Arrays.fill(parameterSet, false);
   }
 
   @Override
@@ -452,7 +468,6 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   public void addBatch() {
     batchQueryParams.add(currentBatchParams);
     currentBatchParams = new Object[paramCount];
-    Arrays.fill(parameterSet, false);
   }
 
   @Override
