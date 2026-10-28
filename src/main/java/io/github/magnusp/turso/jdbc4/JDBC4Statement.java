@@ -130,6 +130,9 @@ public class JDBC4Statement implements Statement {
             long total = 0;
             String remaining = sql;
             while (true) {
+              if (remaining.isBlank()) {
+                break;
+              }
               TursoConnection.ParsedStatement parsed =
                   connection.getTursoConnection().prepareFirst(remaining);
               TursoStatement current = parsed.statement();

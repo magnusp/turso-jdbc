@@ -17,7 +17,7 @@ public final class TursoStatement implements AutoCloseable {
   private String[] columnDeclaredTypes = new String[0];
 
   public TursoStatement(String sql, long statementPointer, TursoConnection connection) {
-    this.sql = sql;
+    this.sql = SqlText.stripLeadingTrivia(sql);
     this.statementPointer = statementPointer;
     this.connection = connection;
     this.resultSet = TursoResultSet.of(this);
@@ -42,6 +42,7 @@ public final class TursoStatement implements AutoCloseable {
       return TursoStepResult.row(values);
     }
     if (status == TursoNative.DONE) {
+      connection.noteTransactionControl(sql);
       if (isDml(sql)) {
         connection.addChanges(TursoNative.changes(pointer));
       }

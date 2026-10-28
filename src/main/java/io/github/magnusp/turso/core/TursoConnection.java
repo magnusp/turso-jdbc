@@ -20,7 +20,7 @@ public final class TursoConnection {
 
   private boolean autoCommit = true;
   private int transactionIsolation = Connection.TRANSACTION_SERIALIZABLE;
-  private boolean inTransaction = false;
+  private volatile boolean inTransaction = false;
   private final Object transactionLock = new Object();
   private long totalChanges;
 
@@ -216,6 +216,22 @@ public final class TursoConnection {
     }
   }
 
+  /** Keeps the driver's transaction flag in step with SQL transaction control statements. */
+  void noteTransactionControl(String sql) {
+    String upper = SqlText.stripLeadingTrivia(sql).toUpperCase(java.util.Locale.ROOT);
+    boolean begins = upper.startsWith("BEGIN") || upper.startsWith("START TRANSACTION");
+    boolean ends =
+        upper.startsWith("COMMIT")
+            || upper.equals("END")
+            || upper.startsWith("END ")
+            || (upper.startsWith("ROLLBACK") && !upper.startsWith("ROLLBACK TO"));
+    if (begins || ends) {
+      synchronized (this) {
+        inTransaction = begins;
+      }
+    }
+  }
+
   public synchronized long getTotalChanges() {
     return totalChanges;
   }
@@ -226,10 +242,10 @@ public final class TursoConnection {
   }
 
   private void ensureTransactionStarted(String sql) throws SQLException {
-    if (autoCommit || inTransaction) {
+    if (autoCommit || inTransaction || !SqlText.hasContent(sql)) {
       return;
     }
-    String trimmed = sql.trim().toUpperCase(java.util.Locale.ROOT);
+    String trimmed = SqlText.stripLeadingTrivia(sql).toUpperCase(java.util.Locale.ROOT);
     if (trimmed.startsWith("BEGIN")
         || trimmed.startsWith("COMMIT")
         || trimmed.startsWith("ROLLBACK")) {
