@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import io.github.magnusp.turso.annotations.Nullable;
-import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoResultSet;
 
 /** JDBC 4 PreparedStatement implementation for Turso databases. */
@@ -24,6 +23,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   private final JDBC4ResultSet resultSet;
 
   private final int paramCount;
+  private final boolean[] parameterSet;
   private Object[] currentBatchParams;
   private final ArrayList<Object[]> batchQueryParams = new ArrayList<>();
 
@@ -40,6 +40,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     this.statement = connection.prepare(sql);
     this.resultSet = new JDBC4ResultSet(this.statement.getResultSet(), this);
     this.paramCount = statement.parameterCount();
+    this.parameterSet = new boolean[paramCount];
     this.currentBatchParams = new Object[paramCount];
   }
 
@@ -83,9 +84,32 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
    * statement. We have to do this so we are able to switch between different sets of parameters
    * when batching queries.
    */
-  private void setParam(int parameterIndex, @Nullable Object object) {
+  private void setParam(int parameterIndex, @Nullable Object object) throws SQLException {
     requireNonNull(this.statement);
+    checkParameterIndex(parameterIndex);
     currentBatchParams[parameterIndex - 1] = object;
+    parameterSet[parameterIndex - 1] = true;
+  }
+
+  private void checkParameterIndex(int parameterIndex) throws SQLException {
+    if (parameterIndex < 1 || parameterIndex > paramCount) {
+      throw new SQLException("parameter index out of range: " + parameterIndex);
+    }
+  }
+
+  /** Returns the last value bound to a parameter, or null when the value itself was null. */
+  @Nullable
+  Object parameterValue(int parameterIndex) throws SQLException {
+    checkParameterIndex(parameterIndex);
+    return currentBatchParams[parameterIndex - 1];
+  }
+
+  boolean isParameterSet(int parameterIndex) {
+    return parameterSet[parameterIndex - 1];
+  }
+
+  int parameterCount() {
+    return paramCount;
   }
 
   @Override
@@ -273,12 +297,14 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   @Override
   public void clearParameters() {
     this.currentBatchParams = new Object[paramCount];
+    Arrays.fill(parameterSet, false);
   }
 
   @Override
   public void clearBatch() throws SQLException {
     this.batchQueryParams.clear();
     this.currentBatchParams = new Object[paramCount];
+    Arrays.fill(parameterSet, false);
   }
 
   @Override
@@ -514,10 +540,8 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   }
 
   @Override
-  @SkipNullableCheck
   public ParameterMetaData getParameterMetaData() throws SQLException {
-    // TODO
-    return null;
+    return new JDBC4ParameterMetaData(this);
   }
 
   @Override
