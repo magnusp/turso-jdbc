@@ -8,3 +8,4 @@
 2026-10-28	Recover declared type modifiers from sqlite_schema.sql	The engine's pragma and column_decltype drop precision/scale	RSMetaDataTest scale/precision pass	kept
 2026-10-28	Lenient value conversion and case-insensitive column lookup	Xerial JDBC behavior; real JDBC compatibility	ResultSetTest 21/21	kept
 2026-10-28	Verify the packaged jar, not only target/classes	Principle: prove it works on the artifact	Jar smoke printed version=3.50.4 id=1 v=jar	verified
+2026-10-28	Rename driver package tech.turso to io.github.magnusp.turso, move native resource and service entry	Upstream publishes tech.turso; duplicate FQCNs and service entries collide when both jars are present	54 tests pass; jar has no tech/turso entries and one service entry io.github.magnusp.turso.JDBC	kept

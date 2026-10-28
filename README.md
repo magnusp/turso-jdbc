@@ -4,7 +4,8 @@ A JDBC driver for embedded [Turso](https://github.com/tursodatabase/turso), back
 Panama FFM over Turso's `turso_sdk_kit` C ABI.
 
 The `java.sql` layer is forked from Turso's `bindings/java` JDBC 4 driver. The JNI core is replaced
-by a direct FFM core in `tech.turso.core`. There is no Hrana, no libSQL client, and no JNI.
+by a direct FFM core in `io.github.magnusp.turso.core`. There is no Hrana, no libSQL client, and
+no JNI.
 
 ## Status
 
@@ -16,6 +17,8 @@ surface exercised by the test suite, not the whole JDBC 4.3 API.
 ```java
 import java.sql.Connection;
 import java.sql.DriverManager;
+
+Class.forName("io.github.magnusp.turso.JDBC");
 
 try (Connection connection = DriverManager.getConnection("jdbc:turso:/path/to/app.db")) {
     // ...
@@ -50,13 +53,13 @@ mvn package
 ```
 
 The jar is self-contained for Linux x86_64. It contains the stripped `libturso_sdk_kit.so` at
-`tech/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary file on first
-use.
+`io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
+file on first use.
 
 The test suite currently runs 54 tests with 0 failures and 1 upstream-disabled test:
 
-- 14 embedded Turso fit tests (`tech.turso.EmbeddedTursoTest`)
-- 3 smoke tests (`tech.turso.SmokeTest`)
+- 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
+- 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
 - 21 vendored xerial `ResultSetTest`
 - 3 vendored xerial `InsertQueryTest` (1 disabled upstream)
 - 13 vendored xerial `RSMetaDataTest`
@@ -93,8 +96,8 @@ The C ABI has no version handshake. Pin the native build and the driver together
 
 ```text
 java.sql
-  -> tech.turso.jdbc4.*            forked JDBC 4 layer
-    -> tech.turso.core.*           FFM core
+  -> io.github.magnusp.turso.jdbc4.*   forked JDBC 4 layer
+    -> io.github.magnusp.turso.core.*  FFM core
       -> TursoNative               Panama FFM downcalls
         -> libturso_sdk_kit.so     turso_* C ABI, async_io=0
 ```

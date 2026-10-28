@@ -3,7 +3,7 @@ set -euo pipefail
 
 TURSO="${1:-${TURSO_CHECKOUT:-../turso}}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT="$ROOT/src/main/resources/tech/turso/native/linux-x86_64"
+OUT="$ROOT/src/main/resources/io/github/magnusp/turso/native/linux-x86_64"
 
 if [[ ! -f "$TURSO/Cargo.toml" ]]; then
   echo "usage: $0 /path/to/turso-checkout" >&2

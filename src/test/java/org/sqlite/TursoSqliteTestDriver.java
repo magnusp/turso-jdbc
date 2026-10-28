@@ -11,7 +11,7 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
 import java.util.logging.Logger;
-import tech.turso.JDBC;
+import io.github.magnusp.turso.JDBC;
 
 /**
  * Test-only shim that lets the vendored xerial tests keep their {@code jdbc:sqlite:} URLs.
