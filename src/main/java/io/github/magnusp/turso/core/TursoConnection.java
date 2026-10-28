@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Properties;
+import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.utils.Logger;
 import io.github.magnusp.turso.utils.LoggerFactory;
 
@@ -91,6 +92,25 @@ public final class TursoConnection {
 
   public TursoStatement prepare(String sql) throws SQLException {
     return prepare(sql, true);
+  }
+
+  /**
+   * Parses the first statement in {@code sql} and returns it with the char offset of the tail.
+   * {@code statement} is null when nothing parseable remains.
+   */
+  public ParsedStatement prepareFirst(String sql) throws SQLException {
+    logger.trace("DriverManager [{}] [Turso EXEC] {}", Thread.currentThread().getName(), sql);
+    ensureTransactionStarted(sql);
+    synchronized (this) {
+      checkOpen();
+      TursoNative.PreparedFirst prepared = TursoNative.prepareFirst(connectionPtr, sql);
+      if (prepared.statement() == 0) {
+        return new ParsedStatement(null, prepared.tail());
+      }
+      return new ParsedStatement(
+          new TursoStatement(sql.substring(0, prepared.tail()), prepared.statement(), this),
+          prepared.tail());
+    }
   }
 
   private TursoStatement prepare(String sql, boolean checkTransaction) throws SQLException {
@@ -225,4 +245,7 @@ public final class TursoConnection {
       statement.getResultSet().consumeAll();
     }
   }
+
+  /** One statement parsed from the head of a SQL string, plus the char offset of its tail. */
+  public record ParsedStatement(@Nullable TursoStatement statement, int tail) {}
 }

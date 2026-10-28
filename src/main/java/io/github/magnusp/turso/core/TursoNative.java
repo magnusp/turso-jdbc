@@ -109,6 +109,10 @@ public final class TursoNative {
       handle(
           "turso_connection_prepare_single",
           FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+  private static final MethodHandle H_PREPARE_FIRST =
+      handle(
+          "turso_connection_prepare_first",
+          FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
   private static final MethodHandle H_STEP =
       handle("turso_statement_step", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
   private static final MethodHandle H_RUN_IO =
@@ -305,6 +309,64 @@ public final class TursoNative {
       throw new SQLException("Unable to prepare Turso statement", t);
     }
   }
+
+  /**
+   * Prepares the first statement in {@code sql}.
+   *
+   * <p>{@code tail} is the char offset in {@code sql} immediately after the parsed statement.
+   * {@code statement} is zero when nothing parseable remains.
+   */
+  public static PreparedFirst prepareFirst(long connection, String sql) throws SQLException {
+    if (sql == null) {
+      throw new SQLException("SQL is null");
+    }
+    if (sql.indexOf('\0') >= 0) {
+      throw new SQLException("SQL contains a NUL character");
+    }
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment stmtSlot = arena.allocate(ADDRESS);
+      stmtSlot.set(ADDRESS, 0, MemorySegment.NULL);
+      MemorySegment tailSlot = arena.allocate(JAVA_LONG);
+      tailSlot.set(JAVA_LONG, 0, 0L);
+      MemorySegment err = errorSlot(arena);
+      int status =
+          (int)
+              H_PREPARE_FIRST.invokeExact(
+                  MemorySegment.ofAddress(connection),
+                  arena.allocateFrom(sql),
+                  stmtSlot,
+                  tailSlot,
+                  err);
+      if (status != OK) {
+        throw error("turso_connection_prepare_first", status, err);
+      }
+      long statement = stmtSlot.get(ADDRESS, 0).address();
+      if (statement == 0) {
+        return new PreparedFirst(0, 0);
+      }
+      return new PreparedFirst(statement, tailChars(sql, tailSlot.get(JAVA_LONG, 0)));
+    } catch (SQLException e) {
+      throw e;
+    } catch (Throwable t) {
+      throw new SQLException("Unable to prepare Turso statement", t);
+    }
+  }
+
+  private static int tailChars(String sql, long tailBytes) throws SQLException {
+    byte[] utf8 = sql.getBytes(StandardCharsets.UTF_8);
+    if (tailBytes < 0 || tailBytes > utf8.length) {
+      throw new SQLException(
+          "turso_connection_prepare_first returned tail "
+              + tailBytes
+              + " for SQL of "
+              + utf8.length
+              + " bytes");
+    }
+    return new String(utf8, 0, (int) tailBytes, StandardCharsets.UTF_8).length();
+  }
+
+  /** A statement parsed from the head of a SQL string, plus the char offset of its tail. */
+  public record PreparedFirst(long statement, int tail) {}
 
   /** Returns {@link #ROW} or {@link #DONE}. Throws on an engine error. */
   public static int step(long statement) throws SQLException {
