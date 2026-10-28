@@ -17,10 +17,12 @@ xerial sqlite-jdbc
   https://github.com/xerial/sqlite-jdbc
   Tag: 3.53.4.0
   Commit: cab7981c19ce04d691f0675f0b2586afc2bbf803
-  License: Apache License 2.0 and the Zentus BSD license. See the upstream LICENSE and
-  LICENSE.zentus files.
-  Files under src/test/java/org/sqlite (ResultSetTest.java, InsertQueryTest.java,
-  RSMetaDataTest.java, Utils.java) are copied from the upstream test tree via the
-  libsql-java upstream export. TursoSqliteTestDriver.java is local test support.
+  License: Apache License 2.0 and the Zentus BSD license. See
+  upstream-xerial_sqlite-jdbc/LICENSE and upstream-xerial_sqlite-jdbc/LICENSE.zentus.
+  Files under upstream-xerial_sqlite-jdbc/src/test/java/org/sqlite (ResultSetTest.java,
+  InsertQueryTest.java, RSMetaDataTest.java, Utils.java) are copied from the upstream test
+  tree by tools/export-upstream at the pinned commit.
+  src/conformance/java/io/github/magnusp/turso/conformance/TursoConformanceDriver.java is
+  local test support.
 
 The full text of the MIT license is in LICENSE.

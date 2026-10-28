@@ -1,0 +1,37 @@
+# Source of truth for the vendored xerial/sqlite-jdbc tree. The conformance
+# build copies these paths into target/generated-test-sources/xerial, and
+# tools/export-upstream exports these paths by default. Run
+# `tools/export-upstream --verify` after any change.
+#
+# The first conformance slice covers only the three xerial test classes that
+# were already hand-copied into this repository, plus their shared Utils
+# support class. The ten selected classes that remain for a follow-up slice are
+# FetchSizeTest, CachedRowSetTest, JSON1Test, MetadataLeakTest,
+# PreparedStatementThreadTest, ResultSetWithoutResultsTest, DBMetaDataTest,
+# StatementTest, PrepStmtTest, and SavepointTest.
+#
+# A deliberate divergence from upstream keeps the "# upstream" hash in
+# upstream-xerial_sqlite-jdbc/CHECKSUMS.sha256, updates the current hash, and
+# adds a line in this file:
+#   # divergence: <path> -- <non-empty reason>
+# Use the reason to say which embedded-Turso behavior makes parity impossible.
+
+# Selected support code.
+# selected: src/test/java/org/sqlite/Utils.java -- compile-option assumptions shared by selected tests; not a test class.
+
+# Selected tests.
+# selected: src/test/java/org/sqlite/ResultSetTest.java -- ResultSet navigation and getter conversions over ordinary SQL.
+# selected: src/test/java/org/sqlite/InsertQueryTest.java -- transaction reuse and commit visibility across shared and independent connections.
+# selected: src/test/java/org/sqlite/RSMetaDataTest.java -- ResultSetMetaData column names, types, and nullability.
+
+# First conformance slice.
+src/test/java/org/sqlite/Utils.java
+src/test/java/org/sqlite/ResultSetTest.java
+src/test/java/org/sqlite/InsertQueryTest.java
+src/test/java/org/sqlite/RSMetaDataTest.java
+
+# License and metadata files that travel with the exported test sources.
+LICENSE
+LICENSE.zentus
+NOTICE
+VERSION
