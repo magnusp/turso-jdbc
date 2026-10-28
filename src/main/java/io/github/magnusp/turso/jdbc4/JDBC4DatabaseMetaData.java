@@ -808,7 +808,8 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                 + "FROM sqlite_schema WHERE type IN ('table','view') "
                 + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
                 + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\' "
-                + "UNION ALL SELECT name, 'GLOBAL TEMPORARY' FROM sqlite_temp_master"
+                + "UNION ALL SELECT name, 'GLOBAL TEMPORARY' FROM sqlite_temp_master "
+                + "WHERE type IN ('table','view')"
                 + ") t WHERE 1=1");
 
     List<String> typeFilter = new ArrayList<>();

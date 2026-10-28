@@ -66,11 +66,12 @@ final class SqliteDdl {
     if (createSql == null) {
       return new PrimaryKey(null, List.of());
     }
-    Matcher named = NAMED_PRIMARY_KEY.matcher(createSql);
+    String body = maskLiterals(body(createSql));
+    Matcher named = NAMED_PRIMARY_KEY.matcher(body);
     if (named.find()) {
       return new PrimaryKey(unquote(named.group("name")), splitColumns(named.group("columns")));
     }
-    Matcher plain = PLAIN_PRIMARY_KEY.matcher(createSql);
+    Matcher plain = PLAIN_PRIMARY_KEY.matcher(body);
     if (plain.find()) {
       return new PrimaryKey(null, splitColumns(plain.group(1)));
     }
@@ -83,7 +84,7 @@ final class SqliteDdl {
       return List.of();
     }
     List<String> names = new ArrayList<>();
-    Matcher matcher = FOREIGN_KEY.matcher(createSql);
+    Matcher matcher = FOREIGN_KEY.matcher(maskLiterals(body(createSql)));
     while (matcher.find()) {
       String name = matcher.group("name");
       names.add(name == null ? null : unquote(name));
@@ -123,7 +124,7 @@ final class SqliteDdl {
     char first = definition.charAt(0);
     if (first == '"' || first == '\'' || first == '`' || first == '[') {
       char closing = first == '[' ? ']' : first;
-      int end = definition.indexOf(closing, 1);
+      int end = closingQuoteIndex(definition, closing, 1);
       if (end < 0) {
         return null;
       }
@@ -145,6 +146,14 @@ final class SqliteDdl {
   private static String typeToken(String rest) {
     if (rest.isEmpty() || CONSTRAINT_KEYWORDS.matcher(rest.toUpperCase(Locale.ROOT)).find()) {
       return "";
+    }
+    char first = rest.charAt(0);
+    if (first == '"' || first == '\'' || first == '`' || first == '[') {
+      char closing = first == '[' ? ']' : first;
+      int end = closingQuoteIndex(rest, closing, 1);
+      if (end > 0) {
+        return unquote(rest.substring(0, end + 1));
+      }
     }
     String upper = rest.toUpperCase(Locale.ROOT);
     int end = rest.length();
@@ -172,18 +181,49 @@ final class SqliteDdl {
         type = type.substring(0, close + 1);
       }
     }
-    return type;
+    return unquote(type);
   }
 
   private static List<String> splitColumns(String columns) {
     List<String> names = new ArrayList<>();
-    for (String column : columns.split(",")) {
-      String name = unquote(column.trim());
+    for (String spec : splitTopLevel(columns)) {
+      String name = firstIdentifier(spec.trim());
       if (!name.isEmpty()) {
         names.add(name);
       }
     }
     return names;
+  }
+
+  /** Returns the column identifier from a key list entry, dropping ASC, DESC, and COLLATE. */
+  private static String firstIdentifier(String spec) {
+    if (spec.isEmpty()) {
+      return "";
+    }
+    char first = spec.charAt(0);
+    if (first == '"' || first == '\'' || first == '`' || first == '[') {
+      char closing = first == '[' ? ']' : first;
+      int end = closingQuoteIndex(spec, closing, 1);
+      return end < 0 ? unquote(spec) : unquote(spec.substring(0, end + 1));
+    }
+    int end = 0;
+    while (end < spec.length() && !Character.isWhitespace(spec.charAt(end))) {
+      end++;
+    }
+    return unquote(spec.substring(0, end));
+  }
+
+  private static int closingQuoteIndex(String text, char closing, int from) {
+    for (int i = from; i < text.length(); i++) {
+      if (text.charAt(i) == closing) {
+        if (i + 1 < text.length() && text.charAt(i + 1) == closing) {
+          i++;
+          continue;
+        }
+        return i;
+      }
+    }
+    return -1;
   }
 
   private static List<String> splitTopLevel(String body) {
@@ -195,7 +235,11 @@ final class SqliteDdl {
       char c = body.charAt(i);
       if (quote != 0) {
         if (c == quote) {
-          quote = 0;
+          if (i + 1 < body.length() && body.charAt(i + 1) == quote) {
+            i++;
+          } else {
+            quote = 0;
+          }
         }
         continue;
       }
@@ -214,5 +258,62 @@ final class SqliteDdl {
     }
     parts.add(body.substring(start));
     return parts;
+  }
+
+  private static String body(String createSql) {
+    int open = createSql.indexOf('(');
+    int close = createSql.lastIndexOf(')');
+    return open >= 0 && close > open ? createSql.substring(open + 1, close) : createSql;
+  }
+
+  /**
+   * Replaces string literals and comments with spaces so constraint keywords inside a default
+   * value or a comment do not look like primary-key or foreign-key clauses.
+   */
+  private static String maskLiterals(String sql) {
+    StringBuilder masked = new StringBuilder(sql);
+    int index = 0;
+    while (index < masked.length()) {
+      char c = masked.charAt(index);
+      if (c == '\'') {
+        int end = index + 1;
+        while (end < masked.length()) {
+          if (masked.charAt(end) == '\'') {
+            if (end + 1 < masked.length() && masked.charAt(end + 1) == '\'') {
+              end += 2;
+              continue;
+            }
+            break;
+          }
+          end++;
+        }
+        int last = Math.min(end, masked.length() - 1);
+        for (int i = index; i <= last; i++) {
+          masked.setCharAt(i, ' ');
+        }
+        index = end + 1;
+        continue;
+      }
+      if (c == '-' && index + 1 < masked.length() && masked.charAt(index + 1) == '-') {
+        int end = masked.indexOf("\n", index);
+        end = end < 0 ? masked.length() : end;
+        for (int i = index; i < end; i++) {
+          masked.setCharAt(i, ' ');
+        }
+        index = end;
+        continue;
+      }
+      if (c == '/' && index + 1 < masked.length() && masked.charAt(index + 1) == '*') {
+        int end = masked.indexOf("*/", index + 2);
+        end = end < 0 ? masked.length() : end + 2;
+        for (int i = index; i < end; i++) {
+          masked.setCharAt(i, ' ');
+        }
+        index = end;
+        continue;
+      }
+      index++;
+    }
+    return masked.toString();
   }
 }
