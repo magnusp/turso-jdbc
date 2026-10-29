@@ -61,6 +61,22 @@ Java 25 restricts native access by default. Start the JVM with:
 
 The driver registers itself through `META-INF/services/java.sql.Driver`.
 
+Connection properties go in the URL query string or in the `Properties` passed to
+`DriverManager.getConnection`. A query string value wins over the same key in `Properties`.
+
+- `foreign_keys`: `on` or `off`. Default `off`, the engine default. `on` enforces foreign keys.
+- `query_only`: `on` or `off`. Default `off`. `on` rejects writes on this connection.
+- `busy_timeout`: milliseconds to wait on a locked database. Default `0`.
+
+Settings apply after the database opens and before any user SQL runs. When a key is absent, the
+engine default stays in effect. An invalid value throws `SQLException` with SQLState `22023` that
+names the key. Unknown keys are ignored. Everything after the first `?` in the URL is read as
+properties, so a database path cannot contain `?`.
+
+```java
+DriverManager.getConnection("jdbc:turso:/path/to/app.db?foreign_keys=on&busy_timeout=5000");
+```
+
 ## Build and test
 
 ```sh
@@ -75,7 +91,7 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 63 tests with 0 failures and 0 skips:
+`mvn test` runs 75 tests with 0 failures and 0 skips:
 
 - 17 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
 - 11 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)

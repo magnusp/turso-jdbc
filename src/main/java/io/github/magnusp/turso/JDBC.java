@@ -40,7 +40,33 @@ public final class JDBC implements Driver {
     if (!isValidURL(url)) return null;
 
     url = url.trim();
-    return new JDBC4Connection(url, extractAddress(url), properties);
+    Properties merged = new Properties();
+    if (properties != null) {
+      merged.putAll(properties);
+    }
+    String address = extractAddress(url);
+    int query = address.indexOf('?');
+    if (query >= 0) {
+      merged.putAll(parseQuery(address.substring(query + 1)));
+      address = address.substring(0, query);
+    }
+    return new JDBC4Connection(url, address, merged);
+  }
+
+  private static Properties parseQuery(String query) {
+    Properties properties = new Properties();
+    for (String pair : query.split("&")) {
+      if (pair.isEmpty()) {
+        continue;
+      }
+      int equals = pair.indexOf('=');
+      if (equals < 0) {
+        properties.setProperty(pair, "");
+      } else {
+        properties.setProperty(pair.substring(0, equals), pair.substring(equals + 1));
+      }
+    }
+    return properties;
   }
 
   private static boolean isValidURL(String url) {
