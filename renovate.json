@@ -14,7 +14,9 @@
       "description": "Group all GitHub Actions updates into one PR",
       "matchManagers": ["github-actions"],
       "matchDepTypes": ["action"],
-      "groupName": "GitHub Actions"
+      "groupName": "GitHub Actions",
+      "separateMajorMinor": false,
+      "separateMultipleMajor": false
     },
     {
       "description": "Group Maven build plugins and extensions, which are upgraded together",
