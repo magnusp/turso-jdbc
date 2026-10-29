@@ -94,6 +94,11 @@ public final class TursoConnection {
     return prepare(sql, true);
   }
 
+  /** Prepares a statement without starting an implicit transaction. For connection pragmas. */
+  public TursoStatement prepareWithoutTransaction(String sql) throws SQLException {
+    return prepare(sql, false);
+  }
+
   /**
    * Parses the first statement in {@code sql} and returns it with the char offset of the tail.
    * {@code statement} is null when nothing parseable remains.
