@@ -154,7 +154,7 @@ public final class JDBC4Connection implements Connection {
 
   @Override
   public void setCatalog(String catalog) throws SQLException {
-    if (!CATALOGS.contains(catalog)) {
+    if (catalog == null || !CATALOGS.contains(catalog)) {
       throw new SQLException("unknown catalog: " + catalog);
     }
     this.catalog = catalog;
