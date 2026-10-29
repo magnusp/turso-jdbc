@@ -1091,6 +1091,7 @@ class DatabaseMetaDataTest {
 
   @Test
   void identifiersReportTheFoldedStoredName(@TempDir Path dir) throws Exception {
+    // The engine folds quoted names; tursodatabase/turso#11046 tracks the upstream fix.
     try (Connection connection = connect(dir, "identifier-case");
         Statement statement = connection.createStatement()) {
       statement.executeUpdate("CREATE TABLE MyTable (id INTEGER)");
