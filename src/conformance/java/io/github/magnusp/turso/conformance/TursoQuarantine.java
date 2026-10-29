@@ -12,8 +12,9 @@ import org.junit.platform.launcher.PostDiscoveryFilter;
  * Excludes explicitly listed reference-test methods from the Turso conformance run.
  *
  * <p>Entries cover the selected reference-test methods whose expectations the embedded engine
- * cannot meet today: folded identifier case (#23), two experimental schema features (#19), and the
- * deliberate stored-procedure contract (#21). Every entry names a method, a reason, the difference
+ * cannot meet today: folded identifier case (#23), two experimental schema features (#19), the
+ * deliberate stored-procedure contract (#21), and the catalog model (#36). Every entry names a
+ * method, a reason, the difference
  * from the reference driver, and an issue, and {@link TursoQuarantineTest} rejects a blank or
  * stale entry. Class-level entries are not supported. The filter is inactive in the reference
  * probe, where the reference driver is the subject.
@@ -125,7 +126,13 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
                             "columnOrderOfgetProcedures",
                             "getProcedures throws SQLFeatureNotSupportedException by design",
                             "the reference driver returns an empty 9-column procedure result set",
-                            "https://github.com/magnusp/turso-jdbc/issues/21"));
+                            "https://github.com/magnusp/turso-jdbc/issues/21"),
+                    new Quarantined(
+                            "org.sqlite.DBMetaDataTest",
+                            "columnOrderOfgetCatalogs",
+                            "getCatalogs returns the main and temp databases as catalogs",
+                            "the reference driver returns an empty catalog result set; Turso models the database name as the catalog",
+                            "https://github.com/magnusp/turso-jdbc/issues/36"));
 
     /**
      * Development switch for running quarantined methods against Turso. The guard tests stay

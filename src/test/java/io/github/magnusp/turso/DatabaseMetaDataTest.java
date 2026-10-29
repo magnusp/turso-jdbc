@@ -1,6 +1,7 @@
 package io.github.magnusp.turso;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -9,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -304,18 +306,139 @@ class DatabaseMetaDataTest {
       List<String> rows = new ArrayList<>();
       try (ResultSet tables = connection.getMetaData().getTables(null, null, null, null)) {
         while (tables.next()) {
-          assertThat(tables.getString("TABLE_CAT")).isNull();
-          rows.add(tables.getString("TABLE_NAME") + "|" + tables.getString("TABLE_TYPE"));
+          rows.add(
+              tables.getString("TABLE_CAT")
+                  + "|"
+                  + tables.getString("TABLE_NAME")
+                  + "|"
+                  + tables.getString("TABLE_TYPE"));
         }
       }
       assertThat(rows)
           .containsExactly(
-              "tt|GLOBAL TEMPORARY",
-              "sqlite_schema|SYSTEM TABLE",
-              "sqlite_sequence|SYSTEM TABLE",
-              "p|TABLE",
-              "t|TABLE",
-              "v|VIEW");
+              "temp|tt|GLOBAL TEMPORARY",
+              "main|sqlite_schema|SYSTEM TABLE",
+              "main|sqlite_sequence|SYSTEM TABLE",
+              "main|p|TABLE",
+              "main|t|TABLE",
+              "main|v|VIEW");
+    }
+  }
+
+  @Test
+  void catalogsAreMainAndTemp(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "catalogs")) {
+      List<String> catalogs = new ArrayList<>();
+      try (ResultSet rows = connection.getMetaData().getCatalogs()) {
+        while (rows.next()) {
+          catalogs.add(rows.getString("TABLE_CAT"));
+        }
+      }
+      assertThat(catalogs).containsExactly("main", "temp");
+    }
+  }
+
+  @Test
+  void catalogTermAndPositionMatchTheModel(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "catalog-term")) {
+      DatabaseMetaData metadata = connection.getMetaData();
+      assertThat(metadata.getCatalogTerm()).isEqualTo("database");
+      assertThat(metadata.isCatalogAtStart()).isTrue();
+    }
+  }
+
+  @Test
+  void connectionCatalogRoundTripsAndRejectsUnknownNames(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "set-catalog")) {
+      assertThat(connection.getCatalog()).isEqualTo("main");
+
+      connection.setCatalog("temp");
+      assertThat(connection.getCatalog()).isEqualTo("temp");
+
+      assertThatThrownBy(() -> connection.setCatalog("unknown"))
+          .isInstanceOf(SQLException.class)
+          .hasMessageContaining("unknown");
+      assertThat(connection.getCatalog()).isEqualTo("temp");
+    }
+  }
+
+  @Test
+  void schemaIsNullAndNonNullSchemaIsRejected(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "schema")) {
+      assertThat(connection.getSchema()).isNull();
+
+      connection.setSchema(null);
+      assertThat(connection.getSchema()).isNull();
+
+      assertThatThrownBy(() -> connection.setSchema("main"))
+          .isInstanceOf(SQLFeatureNotSupportedException.class);
+    }
+  }
+
+  @Test
+  void tableCatalogFromGetTablesPassesBackToGetColumns(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "catalog-round-trip");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (a INTEGER)");
+      statement.executeUpdate("CREATE TEMP TABLE tt (c TEXT)");
+      DatabaseMetaData metadata = connection.getMetaData();
+
+      List<String> tableCatalogs = new ArrayList<>();
+      try (ResultSet tables = metadata.getTables(null, null, null, null)) {
+        while (tables.next()) {
+          String table = tables.getString("TABLE_NAME");
+          if (table.equals("t") || table.equals("tt")) {
+            tableCatalogs.add(tables.getString("TABLE_CAT") + "." + table);
+          }
+        }
+      }
+      assertThat(tableCatalogs).containsExactly("temp.tt", "main.t");
+
+      try (ResultSet columns = metadata.getColumns("temp", null, "tt", "%")) {
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("TABLE_CAT")).isEqualTo("temp");
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("c");
+        assertThat(columns.next()).isFalse();
+      }
+      try (ResultSet columns = metadata.getColumns("main", null, "t", "%")) {
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("TABLE_CAT")).isEqualTo("main");
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("a");
+        assertThat(columns.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getTablesFiltersByCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "tables-by-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (a INTEGER)");
+      statement.executeUpdate("CREATE TEMP TABLE tt (c TEXT)");
+      DatabaseMetaData metadata = connection.getMetaData();
+
+      try (ResultSet tables = metadata.getTables("temp", null, null, null)) {
+        assertThat(tables.next()).isTrue();
+        assertThat(tables.getString("TABLE_NAME")).isEqualTo("tt");
+        assertThat(tables.next()).isFalse();
+      }
+      try (ResultSet tables = metadata.getTables("unknown", null, null, null)) {
+        assertThat(tables.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void primaryKeysEchoTheGivenCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "primary-key-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (a INTEGER PRIMARY KEY, b TEXT)");
+
+      try (ResultSet keys = connection.getMetaData().getPrimaryKeys("main", null, "t")) {
+        assertThat(keys.next()).isTrue();
+        assertThat(keys.getString("TABLE_CAT")).isEqualTo("main");
+        assertThat(keys.getString("COLUMN_NAME")).isEqualTo("a");
+      }
     }
   }
 
