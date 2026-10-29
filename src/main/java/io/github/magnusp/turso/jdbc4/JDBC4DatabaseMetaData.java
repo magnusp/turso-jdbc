@@ -1073,11 +1073,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
         group++;
         previousId = foreignKey.id();
       }
-      String parentColumn = foreignKey.to();
       TableRef parent = findTable(foreignKey.table());
-      if (parentColumn == null || parentColumn.isEmpty()) {
-        parentColumn = firstPrimaryKeyColumn(parent);
-      }
+      List<String> parentKeyColumns = parent == null ? List.of() : primaryKeyColumns(parent);
+      String parentColumn = parentColumn(foreignKey, parentKeyColumns);
       String pkName = primaryKeyName(parent);
       rows.add(
           foreignKeyRow(
@@ -1109,48 +1107,48 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       return emptyForeignKeys();
     }
     List<String> parentKeyColumns = primaryKeyColumns(parent);
-    if (parentKeyColumns.isEmpty()) {
-      return emptyForeignKeys();
-    }
     Set<String> parentKeyLowerCase = new HashSet<>();
     for (String column : parentKeyColumns) {
       parentKeyLowerCase.add(column.toLowerCase(Locale.ROOT));
     }
 
     List<List<Object>> rows = new ArrayList<>();
-    for (TableRef child : userTables()) {
-      List<String> fkNames = reversedForeignKeyNames(child.sql());
-      int group = -1;
-      long previousId = Long.MIN_VALUE;
-      for (ForeignKeyRef foreignKey : readForeignKeys(child.name())) {
-        if (foreignKey.id() != previousId) {
-          group++;
-          previousId = foreignKey.id();
-        }
-        if (!foreignKey.table().equalsIgnoreCase(parent.name())) {
-          continue;
-        }
-        String parentColumn = foreignKey.to();
-        if (parentColumn == null || parentColumn.isEmpty()) {
-          parentColumn = parentKeyColumns.get(0);
-        }
-        String pkName = "";
-        if (parentKeyLowerCase.contains(parentColumn.toLowerCase(Locale.ROOT))) {
-          pkName = primaryKeyName(parent);
-        }
-        rows.add(
-            foreignKeyRow(
-                catalog,
-                schema,
-                parent.name(),
-                parentColumn,
-                foreignKey,
-                child.name(),
-                catalog,
-                schema,
-                foreignKeyName(fkNames, group),
-                pkName));
+    String previousChild = null;
+    List<String> fkNames = List.of();
+    int group = -1;
+    long previousId = Long.MIN_VALUE;
+    for (ChildForeignKey entry : readAllForeignKeys()) {
+      if (!entry.child().equals(previousChild)) {
+        previousChild = entry.child();
+        fkNames = reversedForeignKeyNames(entry.childSql());
+        group = -1;
+        previousId = Long.MIN_VALUE;
       }
+      ForeignKeyRef foreignKey = entry.key();
+      if (foreignKey.id() != previousId) {
+        group++;
+        previousId = foreignKey.id();
+      }
+      if (!foreignKey.table().equalsIgnoreCase(parent.name())) {
+        continue;
+      }
+      String parentColumn = parentColumn(foreignKey, parentKeyColumns);
+      String pkName = "";
+      if (parentKeyLowerCase.contains(parentColumn.toLowerCase(Locale.ROOT))) {
+        pkName = primaryKeyName(parent);
+      }
+      rows.add(
+          foreignKeyRow(
+              catalog,
+              schema,
+              parent.name(),
+              parentColumn,
+              foreignKey,
+              entry.child(),
+              catalog,
+              schema,
+              foreignKeyName(fkNames, group),
+              pkName));
     }
     rows.sort(
         Comparator.comparing((List<Object> row) -> (String) row.get(9))
@@ -1544,6 +1542,8 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       @Nullable String onUpdate,
       @Nullable String onDelete) {}
 
+  private record ChildForeignKey(String child, @Nullable String childSql, ForeignKeyRef key) {}
+
   private record PrimaryKeyColumn(String name, int sequence) {}
 
   private ResultSet emptyForeignKeys() throws SQLException {
@@ -1643,19 +1643,24 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     return null;
   }
 
-  private List<TableRef> userTables() throws SQLException {
+  private List<ChildForeignKey> readAllForeignKeys() throws SQLException {
     String sql =
-        "SELECT name, sql FROM sqlite_schema WHERE type='table' "
-            + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
-            + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\'";
-    List<TableRef> tables = new ArrayList<>();
+        "SELECT m.name AS child, m.sql AS child_sql, fk.id, fk.seq, fk.\"table\", fk.\"from\", "
+            + "fk.\"to\", fk.on_update, fk.on_delete "
+            + "FROM sqlite_schema m JOIN pragma_foreign_key_list(m.name) fk "
+            + "WHERE m.type='table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
+            + "AND m.name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\' "
+            + "ORDER BY m.name, fk.id, fk.seq";
+    List<ChildForeignKey> keys = new ArrayList<>();
     try (PreparedStatement statement = connection.prepareStatement(sql);
         ResultSet rows = statement.executeQuery()) {
       while (rows.next()) {
-        tables.add(new TableRef(rows.getString("name"), rows.getString("sql")));
+        keys.add(
+            new ChildForeignKey(
+                rows.getString("child"), rows.getString("child_sql"), foreignKeyRef(rows)));
       }
     }
-    return tables;
+    return keys;
   }
 
   private List<ForeignKeyRef> readForeignKeys(String table) throws SQLException {
@@ -1667,19 +1672,22 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       statement.setString(1, table);
       try (ResultSet rows = statement.executeQuery()) {
         while (rows.next()) {
-          keys.add(
-              new ForeignKeyRef(
-                  rows.getLong("id"),
-                  rows.getInt("seq"),
-                  rows.getString("table"),
-                  rows.getString("from"),
-                  rows.getString("to"),
-                  rows.getString("on_update"),
-                  rows.getString("on_delete")));
+          keys.add(foreignKeyRef(rows));
         }
       }
     }
     return keys;
+  }
+
+  private static ForeignKeyRef foreignKeyRef(ResultSet rows) throws SQLException {
+    return new ForeignKeyRef(
+        rows.getLong("id"),
+        rows.getInt("seq"),
+        rows.getString("table"),
+        rows.getString("from"),
+        rows.getString("to"),
+        rows.getString("on_update"),
+        rows.getString("on_delete"));
   }
 
   private static List<String> reversedForeignKeyNames(@Nullable String createSql) {
@@ -1716,12 +1724,12 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     return name == null ? "" : name;
   }
 
-  private String firstPrimaryKeyColumn(@Nullable TableRef table) throws SQLException {
-    if (table == null) {
-      return "";
+  private static String parentColumn(ForeignKeyRef foreignKey, List<String> parentKeyColumns) {
+    if (foreignKey.to() != null && !foreignKey.to().isEmpty()) {
+      return foreignKey.to();
     }
-    List<String> columns = primaryKeyColumns(table);
-    return columns.isEmpty() ? "" : columns.get(0);
+    int index = foreignKey.sequence();
+    return index < parentKeyColumns.size() ? parentKeyColumns.get(index) : "";
   }
 
   private static String matchColumnName(String name, List<PragmaColumn> columns) {

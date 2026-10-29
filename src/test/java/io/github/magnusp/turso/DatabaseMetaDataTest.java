@@ -34,6 +34,19 @@ class DatabaseMetaDataTest {
     return names;
   }
 
+  private static List<List<String>> columnValues(ResultSet rs, String... columns)
+      throws SQLException {
+    List<List<String>> rows = new ArrayList<>();
+    while (rs.next()) {
+      List<String> row = new ArrayList<>();
+      for (String column : columns) {
+        row.add(rs.getString(column));
+      }
+      rows.add(row);
+    }
+    return rows;
+  }
+
   @Test
   void getColumnsHasTheJdbc43Shape(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "columns");
@@ -164,6 +177,100 @@ class DatabaseMetaDataTest {
         assertThat(primaryKeys.getString("COLUMN_NAME")).isEqualTo("id");
         assertThat(primaryKeys.getString("PK_NAME")).isEqualTo("parent_pk");
         assertThat(primaryKeys.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void implicitCompositeForeignKeyResolvesEachParentColumn(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "implicit-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p2 (a INTEGER, b TEXT, PRIMARY KEY (a, b))");
+      statement.executeUpdate(
+          "CREATE TABLE c3 (x INTEGER, y TEXT, FOREIGN KEY (x, y) REFERENCES p2)");
+
+      try (ResultSet imported = connection.getMetaData().getImportedKeys(null, null, "c3")) {
+        assertThat(columnValues(imported, "PKCOLUMN_NAME", "KEY_SEQ", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("a", "1", "x"), List.of("b", "2", "y"));
+      }
+    }
+  }
+
+  @Test
+  void explicitCompositeForeignKeyKeepsListedColumns(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "explicit-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p2 (a INTEGER, b TEXT, PRIMARY KEY (a, b))");
+      statement.executeUpdate(
+          "CREATE TABLE c5 (x INTEGER, y TEXT,"
+              + " CONSTRAINT c5_fk FOREIGN KEY (x, y) REFERENCES p2 (b, a))");
+
+      try (ResultSet imported = connection.getMetaData().getImportedKeys(null, null, "c5")) {
+        assertThat(columnValues(imported, "PKCOLUMN_NAME", "KEY_SEQ", "FK_NAME"))
+            .containsExactly(List.of("b", "1", "c5_fk"), List.of("a", "2", "c5_fk"));
+      }
+    }
+  }
+
+  @Test
+  void exportedKeysIncludeUniqueTarget(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "unique-target");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE u (code TEXT UNIQUE)");
+      statement.executeUpdate("CREATE TABLE c4 (code TEXT REFERENCES u (code))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet exported = metadata.getExportedKeys(null, null, "u")) {
+        assertThat(columnValues(exported, "PKCOLUMN_NAME", "FKTABLE_NAME", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("code", "c4", "code"));
+      }
+      try (ResultSet imported = metadata.getImportedKeys(null, null, "c4")) {
+        assertThat(columnValues(imported, "PKCOLUMN_NAME", "PKTABLE_NAME"))
+            .containsExactly(List.of("code", "u"));
+      }
+    }
+  }
+
+  @Test
+  void exportedKeysResolveEachParentColumnForCompositeKey(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "exported-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p2 (a INTEGER, b TEXT, PRIMARY KEY (a, b))");
+      statement.executeUpdate(
+          "CREATE TABLE c3 (x INTEGER, y TEXT, FOREIGN KEY (x, y) REFERENCES p2)");
+
+      try (ResultSet exported = connection.getMetaData().getExportedKeys(null, null, "p2")) {
+        assertThat(columnValues(exported, "PKCOLUMN_NAME", "KEY_SEQ", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("a", "1", "x"), List.of("b", "2", "y"));
+      }
+    }
+  }
+
+  @Test
+  void multipleForeignKeysKeepGroupingAndOrdering(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "multi-foreign-keys");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE mp1 (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE mp2 (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate(
+          "CREATE TABLE mchild (a INTEGER, b INTEGER, c INTEGER,"
+              + " CONSTRAINT f1 FOREIGN KEY (a) REFERENCES mp1 (id),"
+              + " CONSTRAINT f2 FOREIGN KEY (b) REFERENCES mp2 (id),"
+              + " FOREIGN KEY (c) REFERENCES mp1 (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet imported = metadata.getImportedKeys(null, null, "mchild")) {
+        assertThat(
+                columnValues(
+                    imported, "PKTABLE_NAME", "PKCOLUMN_NAME", "FKCOLUMN_NAME", "FK_NAME"))
+            .containsExactly(
+                List.of("mp1", "id", "c", ""),
+                List.of("mp1", "id", "a", "f1"),
+                List.of("mp2", "id", "b", "f2"));
+      }
+      try (ResultSet exported = metadata.getExportedKeys(null, null, "mp1")) {
+        assertThat(columnValues(exported, "FKCOLUMN_NAME", "FK_NAME"))
+            .containsExactly(List.of("c", ""), List.of("a", "f1"));
       }
     }
   }
