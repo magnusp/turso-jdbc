@@ -93,10 +93,10 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 116 tests with 0 failures and 0 skips:
+`mvn test` runs 117 tests with 0 failures and 0 skips:
 
 - 17 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
-- 52 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
+- 53 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
 - 12 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
 - 8 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
 - 4 experimental feature tests (`io.github.magnusp.turso.ExperimentalFeatureTest`)
@@ -105,7 +105,7 @@ file on first use.
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
 `mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 242 tests
-with 0 failures, 3 skips, and 18 methods. The report accounts for 260 total
+with 0 failures, 3 skips, and 18 quarantined methods. The report accounts for 260 total
 (`total = executed + quarantined`):
 
 - 13 classes from the exported reference test tree

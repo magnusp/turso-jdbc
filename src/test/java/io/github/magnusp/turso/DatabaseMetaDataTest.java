@@ -1088,4 +1088,31 @@ class DatabaseMetaDataTest {
       }
     }
   }
+
+  @Test
+  void identifiersReportTheFoldedStoredName(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "identifier-case");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE MyTable (id INTEGER)");
+      statement.executeUpdate("CREATE VIEW testView AS SELECT id FROM MyTable");
+
+      List<String> names = new ArrayList<>();
+      try (ResultSet rows =
+          connection
+              .getMetaData()
+              .getTables(null, null, null, new String[] {"TABLE", "VIEW"})) {
+        while (rows.next()) {
+          names.add(rows.getString("TABLE_NAME"));
+        }
+      }
+      assertThat(names).containsExactlyInAnyOrder("mytable", "testview");
+
+      try (ResultSet columns = connection.getMetaData().getColumns(null, null, "MyTable", "%")) {
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("TABLE_NAME")).isEqualTo("mytable");
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("id");
+        assertThat(columns.next()).isFalse();
+      }
+    }
+  }
 }
