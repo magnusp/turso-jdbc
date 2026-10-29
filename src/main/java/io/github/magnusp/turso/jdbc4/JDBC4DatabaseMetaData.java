@@ -811,15 +811,12 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                 + "t.TABLE_TYPE AS TABLE_TYPE, NULL AS REMARKS, NULL AS TYPE_CAT, "
                 + "NULL AS TYPE_SCHEM, NULL AS TYPE_NAME, "
                 + "NULL AS SELF_REFERENCING_COL_NAME, NULL AS REF_GENERATION FROM ("
-                + "SELECT 'sqlite_schema' AS name, 'SYSTEM TABLE' AS TABLE_TYPE "
-                + "UNION ALL SELECT name, 'SYSTEM TABLE' FROM sqlite_schema "
-                + "WHERE name LIKE 'sqlite\\_%' ESCAPE '\\' AND type IN ('table','view') "
-                + "UNION ALL SELECT name, CASE type WHEN 'view' THEN 'VIEW' ELSE 'TABLE' END "
-                + "FROM sqlite_schema WHERE type IN ('table','view') "
-                + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
-                + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\' "
-                + "UNION ALL SELECT name, 'GLOBAL TEMPORARY' FROM sqlite_temp_master "
-                + "WHERE type IN ('table','view')"
+                + "SELECT name, CASE WHEN schema = 'temp' THEN 'GLOBAL TEMPORARY' "
+                + "WHEN name LIKE 'sqlite\\_%' ESCAPE '\\' THEN 'SYSTEM TABLE' "
+                + "WHEN type = 'view' THEN 'VIEW' ELSE 'TABLE' END AS TABLE_TYPE "
+                + "FROM pragma_table_list WHERE type IN ('table','view') "
+                + "AND NOT (schema = 'temp' AND name = 'sqlite_temp_schema') "
+                + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\'"
                 + ") t WHERE 1=1");
 
     List<String> typeFilter = new ArrayList<>();
