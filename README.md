@@ -253,9 +253,10 @@ provide.
   parse error. Virtual generated columns work.
 - `Statement.executeUpdate` accepts semicolon-separated statements and returns the combined
   affected-row count. `Statement.execute` and `executeQuery` execute one statement.
-- The engine folds every identifier to lower case, including quoted names. Metadata reports the
-  canonical stored name, so a table created as `MyTable` appears as `mytable` and a view created as
-  `testView` appears as `testview`. Tracked in #23.
+- Table and view names fold to lower case, including quoted names, so a table created as `MyTable`
+  appears as `mytable` and a view created as `testView` appears as `testview`. Column names keep the
+  spelling in the declared type, in both `DatabaseMetaData.getColumns` and `ResultSetMetaData`.
+  Tracked in #23.
 - Encryption entry points exist in the core but are untested.
 - Metadata is best effort. Column types and precision come from the declared type in
   `sqlite_schema.sql`; expressions fall back to the value's storage class.
