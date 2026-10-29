@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Properties;
+import io.github.magnusp.turso.TursoConfig;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.utils.Logger;
 import io.github.magnusp.turso.utils.LoggerFactory;
@@ -30,9 +31,33 @@ public final class TursoConnection {
 
   public TursoConnection(String url, String filePath, Properties properties) throws SQLException {
     this.url = url;
+    TursoConfig config = new TursoConfig(properties);
+    Boolean foreignKeys = config.foreignKeys();
+    Boolean queryOnly = config.queryOnly();
+    Long busyTimeout = config.busyTimeout();
     this.database = TursoDB.create(url, filePath);
     this.ownsDatabase = true;
     this.connectionPtr = this.database.connect();
+    try {
+      applySettings(foreignKeys, queryOnly, busyTimeout);
+    } catch (SQLException e) {
+      close();
+      throw e;
+    }
+  }
+
+  private void applySettings(
+      @Nullable Boolean foreignKeys, @Nullable Boolean queryOnly, @Nullable Long busyTimeout)
+      throws SQLException {
+    if (busyTimeout != null) {
+      setBusyTimeout(busyTimeout);
+    }
+    if (foreignKeys != null) {
+      executeInternal("PRAGMA foreign_keys = " + (foreignKeys ? 1 : 0));
+    }
+    if (queryOnly != null) {
+      executeInternal("PRAGMA query_only = " + (queryOnly ? 1 : 0));
+    }
   }
 
   public TursoConnection(String url, TursoDB database) throws SQLException {
