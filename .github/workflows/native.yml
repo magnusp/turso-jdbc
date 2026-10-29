@@ -1,0 +1,69 @@
+name: Native
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/native.yml
+      - scripts/build-native.sh
+      - src/main/resources/io/github/magnusp/turso/native/**
+  pull_request:
+    paths:
+      - .github/workflows/native.yml
+      - scripts/build-native.sh
+      - src/main/resources/io/github/magnusp/turso/native/**
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  native:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read the native pin from the manifest
+        id: pin
+        run: |
+          set -euo pipefail
+          manifest=src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties
+          commit="$(sed -n 's/^TURSO_COMMIT=//p' "$manifest")"
+          rust="$(sed -n 's/^RUST_VERSION=//p' "$manifest")"
+          test -n "$commit"
+          test -n "$rust"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: tursodatabase/turso
+          ref: ${{ steps.pin.outputs.commit }}
+          path: turso
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.pin.outputs.rust }}
+      - name: Build the native library from the pinned commit
+        run: scripts/build-native.sh --update turso
+      - run: mvn -B verify
+      - name: Verify the fresh build against the updated manifest
+        run: scripts/build-native.sh --check
+      - name: Record the fresh native identity
+        run: |
+          set -euo pipefail
+          manifest=src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties
+          {
+            echo "### Fresh native build"
+            echo '```'
+            grep -E '^(TURSO_COMMIT|TURSO_SDK_KIT_VERSION|SO_SIZE|SO_SHA256|SO_GLIBC_MAX|BUILD_IMAGE|BUILD_GLIBC|RUST_VERSION)=' "$manifest"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
