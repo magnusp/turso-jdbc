@@ -456,7 +456,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public boolean supportsIntegrityEnhancementFacility() {
-    return false;
+    return true;
   }
 
   @Override

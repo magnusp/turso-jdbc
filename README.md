@@ -65,6 +65,8 @@ Connection properties go in the URL query string or in the `Properties` passed t
 `DriverManager.getConnection`. A query string value wins over the same key in `Properties`.
 
 - `foreign_keys`: `on` or `off`. Default `off`, the engine default. `on` enforces foreign keys.
+  `DatabaseMetaData.supportsIntegrityEnhancementFacility()` returns `true` because the engine
+  supports foreign keys. The default stays off, so orphan rows are accepted until `foreign_keys=on`.
 - `query_only`: `on` or `off`. Default `off`. `on` rejects writes on this connection.
 - `busy_timeout`: milliseconds to wait on a locked database. Default `0`.
 
