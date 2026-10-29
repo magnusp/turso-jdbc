@@ -1142,8 +1142,10 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     if (foreignTable == null) {
       return getImportedKeys(parentCatalog, parentSchema, parentTable);
     }
-    if ((parentCatalog != null && !parentCatalog.isEmpty())
-        || (parentSchema != null && !parentSchema.isEmpty())) {
+    if (!isEngineCatalog(parentCatalog)
+        || !isEngineSchema(parentSchema)
+        || !isEngineCatalog(foreignCatalog)
+        || !isEngineSchema(foreignSchema)) {
       return emptyForeignKeys();
     }
     List<List<Object>> rows = new ArrayList<>();
@@ -1508,6 +1510,17 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   private ResultSet emptyForeignKeys() throws SQLException {
     return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, List.of());
+  }
+
+  private static boolean isEngineCatalog(@Nullable String catalog) {
+    return catalog == null
+        || catalog.isEmpty()
+        || catalog.equalsIgnoreCase("main")
+        || catalog.equalsIgnoreCase("temp");
+  }
+
+  private static boolean isEngineSchema(@Nullable String schema) {
+    return schema == null || schema.isEmpty();
   }
 
   private Map<String, String> loadCreateSql() throws SQLException {
