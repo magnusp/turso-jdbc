@@ -1024,9 +1024,16 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getImportedKeys(
       @Nullable String catalog, @Nullable String schema, @Nullable String table)
       throws SQLException {
+    return MetadataRows.of(
+        connection, FOREIGN_KEY_COLUMNS, importedKeyRows(catalog, schema, table));
+  }
+
+  private List<List<Object>> importedKeyRows(
+      @Nullable String catalog, @Nullable String schema, @Nullable String table)
+      throws SQLException {
     TableRef child = table == null ? null : findTable(table);
     if (child == null) {
-      return emptyForeignKeys();
+      return List.of();
     }
     List<String> fkNames = reversedForeignKeyNames(child.sql());
     List<List<Object>> rows = new ArrayList<>();
@@ -1059,7 +1066,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     rows.sort(
         Comparator.comparing((List<Object> row) -> (String) row.get(2))
             .thenComparingInt(row -> (Integer) row.get(4)));
-    return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
+    return rows;
   }
 
   @Override
@@ -1135,7 +1142,13 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     if (foreignTable == null) {
       return getImportedKeys(parentCatalog, parentSchema, parentTable);
     }
-    return emptyForeignKeys();
+    List<List<Object>> rows = new ArrayList<>();
+    for (List<Object> row : importedKeyRows(foreignCatalog, foreignSchema, foreignTable)) {
+      if (((String) row.get(2)).equalsIgnoreCase(parentTable)) {
+        rows.add(row);
+      }
+    }
+    return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
   }
 
   @Override
