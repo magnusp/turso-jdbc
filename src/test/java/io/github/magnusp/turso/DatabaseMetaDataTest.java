@@ -292,6 +292,34 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void getTablesMatchesGoldenRowsAndTypes(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "golden-tables");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (a INTEGER PRIMARY KEY, b TEXT)");
+      statement.executeUpdate("CREATE TABLE p (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)");
+      statement.executeUpdate("INSERT INTO p (name) VALUES ('x')");
+      statement.executeUpdate("CREATE VIEW v AS SELECT a FROM t");
+      statement.executeUpdate("CREATE TEMP TABLE tt (c INTEGER)");
+
+      List<String> rows = new ArrayList<>();
+      try (ResultSet tables = connection.getMetaData().getTables(null, null, null, null)) {
+        while (tables.next()) {
+          assertThat(tables.getString("TABLE_CAT")).isNull();
+          rows.add(tables.getString("TABLE_NAME") + "|" + tables.getString("TABLE_TYPE"));
+        }
+      }
+      assertThat(rows)
+          .containsExactly(
+              "tt|GLOBAL TEMPORARY",
+              "sqlite_schema|SYSTEM TABLE",
+              "sqlite_sequence|SYSTEM TABLE",
+              "p|TABLE",
+              "t|TABLE",
+              "v|VIEW");
+    }
+  }
+
+  @Test
   void foreignKeysForUnknownTableAreEmpty(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "unknown-foreign-keys")) {
       DatabaseMetaData metadata = connection.getMetaData();
