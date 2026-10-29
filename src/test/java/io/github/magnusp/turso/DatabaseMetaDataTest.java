@@ -293,6 +293,98 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void getIndexInfoReportsDescendingSortOrder(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "index-desc");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (a INTEGER, b INTEGER)");
+      statement.executeUpdate("CREATE INDEX p_desc ON p(a DESC)");
+      statement.executeUpdate("CREATE INDEX p_asc ON p(b)");
+
+      List<String> sortOrders = new ArrayList<>();
+      try (ResultSet rows = connection.getMetaData().getIndexInfo(null, null, "p", false, false)) {
+        while (rows.next()) {
+          sortOrders.add(rows.getString("INDEX_NAME") + ":" + rows.getString("ASC_OR_DESC"));
+        }
+      }
+      assertThat(sortOrders).containsExactly("p_asc:A", "p_desc:D");
+    }
+  }
+
+  @Test
+  void getIndexInfoReportsOtherIndexType(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "index-type");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (a INTEGER, b INTEGER)");
+      statement.executeUpdate("CREATE UNIQUE INDEX p_unique ON p(a)");
+
+      try (ResultSet rows = connection.getMetaData().getIndexInfo(null, null, "p", false, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getInt("TYPE")).isEqualTo(DatabaseMetaData.tableIndexOther);
+        assertThat(rows.getBoolean("NON_UNIQUE")).isFalse();
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getIndexInfoOmitsRowidSlot(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "index-rowid-slot");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (a INTEGER, b INTEGER)");
+      statement.executeUpdate("CREATE INDEX p_ab ON p(a, b)");
+
+      List<String> columns = new ArrayList<>();
+      try (ResultSet rows = connection.getMetaData().getIndexInfo(null, null, "p", false, false)) {
+        while (rows.next()) {
+          columns.add(rows.getString("COLUMN_NAME") + "@" + rows.getInt("ORDINAL_POSITION"));
+        }
+      }
+      assertThat(columns).containsExactly("a@1", "b@2");
+    }
+  }
+
+  @Test
+  void getIndexInfoReportsPartialIndexPredicate(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "index-partial");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (a INTEGER, b INTEGER)");
+      statement.executeUpdate("CREATE INDEX p_part ON p(b) WHERE b IS NOT NULL");
+      statement.executeUpdate("CREATE INDEX p_full ON p(a)");
+
+      try (ResultSet rows = connection.getMetaData().getIndexInfo(null, null, "p", false, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("INDEX_NAME")).isEqualTo("p_full");
+        assertThat(rows.getString("FILTER_CONDITION")).isNull();
+
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("INDEX_NAME")).isEqualTo("p_part");
+        assertThat(rows.getString("FILTER_CONDITION")).isEqualTo("b IS NOT NULL");
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getIndexInfoReportsExpressionKeyWithoutColumnName(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "index-expression");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (a INTEGER, c TEXT)");
+      statement.executeUpdate("CREATE INDEX p_expr ON p(lower(c), a)");
+
+      try (ResultSet rows = connection.getMetaData().getIndexInfo(null, null, "p", false, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isNull();
+        assertThat(rows.getInt("ORDINAL_POSITION")).isEqualTo(1);
+
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("a");
+        assertThat(rows.getInt("ORDINAL_POSITION")).isEqualTo(2);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
   void foreignKeysForUnknownTableAreEmpty(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "unknown-foreign-keys")) {
       DatabaseMetaData metadata = connection.getMetaData();
