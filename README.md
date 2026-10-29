@@ -75,9 +75,9 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 60 tests with 0 failures and 0 skips:
+`mvn test` runs 61 tests with 0 failures and 0 skips:
 ||||||| parent of 6d0bc83 (fix(jdbc): read BIT columns as Boolean with Types.BIT)
-`mvn test` runs 57 tests with 0 failures and 0 skips:
+`mvn test` runs 61 tests with 0 failures and 0 skips:
 
 - 15 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
 - 11 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
