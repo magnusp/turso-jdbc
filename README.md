@@ -93,31 +93,18 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 117 tests with 0 failures and 0 skips:
+`mvn test` runs the fast suite. Surefire writes per-class results to `target/surefire-reports/`.
 
-- 17 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
-- 53 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
-- 12 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
-- 8 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
-- 4 experimental feature tests (`io.github.magnusp.turso.ExperimentalFeatureTest`)
-- 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
-- 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
-- 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs those tests
+and writes `target/conformance-summary.txt`. CI uploads the reports and the summary as the
+`conformance-results` artifact.
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 242 tests
-with 0 failures, 3 skips, and 18 quarantined methods. The report accounts for 260 total
-(`total = executed + quarantined`):
+Skips come from `@Disabled` methods in the exported tree and from one assumption that the engine
+build was compiled with `JDBC_EXTENSIONS`.
 
-- 13 classes from the exported reference test tree
-- 6 conformance harness tests (`TursoHarnessTest`)
-- 3 quarantine guard tests (`TursoQuarantineTest`)
-
-The three skips are two `@Disabled` methods in the exported tree and one assumption that the
-engine build was compiled with `JDBC_EXTENSIONS`.
-
-The `xerial-control` profile is a reference probe. It skips the fast suite and runs the same 13
-classes against `org.xerial:sqlite-jdbc:3.53.4.0`: 251 executed, 249 pass, 2 `@Disabled` skips, 0
-quarantined, `control=true`. The numbers describe the reference driver, not a target for Turso.
+The `xerial-control` profile is a reference probe. It skips the fast suite and runs the same
+conformance classes against `org.xerial:sqlite-jdbc:3.53.4.0`. Its report describes the reference
+driver, not a target for Turso.
 
 ### Reference conformance harness
 
@@ -125,7 +112,7 @@ The test tree is a harness, not a specification. It exists so the same scenarios
 this driver and against the reference driver, and so behavior changes stay visible. The driver is
 not required to copy a reference result when JDBC or Turso says otherwise.
 
-The 13 test classes and `Utils` come from a pinned export of the reference implementation,
+The exported test classes and `Utils` come from a pinned export of the reference implementation,
 `xerial/sqlite-jdbc` tag `3.53.4.0`, commit
 `cab7981c19ce04d691f0675f0b2586afc2bbf803`. `target/generated-test-sources/xerial`
 is populated from `upstream-xerial_sqlite-jdbc.manifest`; the committed reference tree is checked
@@ -148,12 +135,12 @@ Turso:
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
 checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
-non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 17
-explicit reference-test methods with a reason, the difference from the reference driver, and an
-issue link. The entries cover folded identifier case (#23), two experimental engine schema
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes
+explicit reference-test methods. Each entry has a reason, the difference from the reference driver,
+and an issue link. The entries cover folded identifier case (#23), two experimental engine schema
 features (#19), the deliberate stored-procedure contract (#21), and BIT read as Boolean (#20).
-`TursoQuarantineTest` rejects
-a blank or stale entry, and the filter is inactive in the reference probe. Pass
+`TursoQuarantineTest` rejects a blank or stale entry, and the filter is inactive in the reference
+probe. Pass
 `-Dconformance.quarantine.enabled=false` to run the quarantined methods against Turso while
 developing. `TursoConformanceReport` writes
 `target/conformance-summary.txt` with `control`, total, executed, passed, failed, skipped, and
@@ -171,8 +158,8 @@ tools/check-quarantine
 
 The run writes `target/quarantine-ratchet.tsv`, one row per entry. `tools/check-quarantine` prints a
 per-status count summary when every row is `failed`, and `tools/check-quarantine --self-test`
-exercises the gate on temporary fixtures. All 17 entries still fail as expected (12 for #23, 4 for
-#19 and #21, 1 for #20), so the job is green today.
+exercises the gate on temporary fixtures. The job stays green while every entry still fails as
+expected.
 
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
