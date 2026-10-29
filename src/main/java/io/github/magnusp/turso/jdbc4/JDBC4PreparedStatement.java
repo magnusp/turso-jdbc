@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import io.github.magnusp.turso.annotations.Nullable;
-import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoResultSet;
 
 /** JDBC 4 PreparedStatement implementation for Turso databases. */
@@ -23,7 +22,10 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   private final String sql;
   private final JDBC4ResultSet resultSet;
 
+  static final int UNSET = -1;
+
   private final int paramCount;
+  private final int[] parameterTypes;
   private Object[] currentBatchParams;
   private final ArrayList<Object[]> batchQueryParams = new ArrayList<>();
 
@@ -40,6 +42,8 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
     this.statement = connection.prepare(sql);
     this.resultSet = new JDBC4ResultSet(this.statement.getResultSet(), this);
     this.paramCount = statement.parameterCount();
+    this.parameterTypes = new int[paramCount];
+    Arrays.fill(parameterTypes, UNSET);
     this.currentBatchParams = new Object[paramCount];
   }
 
@@ -83,9 +87,46 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
    * statement. We have to do this so we are able to switch between different sets of parameters
    * when batching queries.
    */
-  private void setParam(int parameterIndex, @Nullable Object object) {
+  private void setParam(int parameterIndex, @Nullable Object object) throws SQLException {
     requireNonNull(this.statement);
+    checkParameterIndex(parameterIndex);
     currentBatchParams[parameterIndex - 1] = object;
+    parameterTypes[parameterIndex - 1] = parameterTypeOf(object);
+  }
+
+  private void checkParameterIndex(int parameterIndex) throws SQLException {
+    if (parameterIndex < 1 || parameterIndex > paramCount) {
+      throw new SQLException("parameter index out of range: " + parameterIndex);
+    }
+  }
+
+  /** Returns the JDBC type of the last value bound to a parameter, or {@link #UNSET}. */
+  int parameterType(int parameterIndex) throws SQLException {
+    checkParameterIndex(parameterIndex);
+    return parameterTypes[parameterIndex - 1];
+  }
+
+  private static int parameterTypeOf(@Nullable Object value) {
+    if (value == null) {
+      return Types.NULL;
+    }
+    if (value instanceof Integer
+        || value instanceof Short
+        || value instanceof Byte
+        || value instanceof Boolean) {
+      return Types.INTEGER;
+    }
+    if (value instanceof Long) {
+      return Types.BIGINT;
+    }
+    if (value instanceof Double || value instanceof Float) {
+      return Types.REAL;
+    }
+    return Types.VARCHAR;
+  }
+
+  int parameterCount() {
+    return paramCount;
   }
 
   @Override
@@ -273,6 +314,7 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   @Override
   public void clearParameters() {
     this.currentBatchParams = new Object[paramCount];
+    Arrays.fill(parameterTypes, UNSET);
   }
 
   @Override
@@ -514,10 +556,8 @@ public final class JDBC4PreparedStatement extends JDBC4Statement implements Prep
   }
 
   @Override
-  @SkipNullableCheck
   public ParameterMetaData getParameterMetaData() throws SQLException {
-    // TODO
-    return null;
+    return new JDBC4ParameterMetaData(this);
   }
 
   @Override

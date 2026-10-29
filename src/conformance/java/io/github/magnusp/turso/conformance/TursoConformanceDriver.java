@@ -13,7 +13,7 @@ import java.util.Properties;
 import java.util.logging.Logger;
 
 /**
- * Test-only shim that maps the {@code jdbc:sqlite:} URLs used by the vendored xerial tests onto
+ * Test-only shim that maps the {@code jdbc:sqlite:} URLs used by the exported reference tests onto
  * the embedded Turso driver.
  *
  * <p>An empty path, {@code :memory:}, {@code file::memory:?cache=shared}, and any URL whose query

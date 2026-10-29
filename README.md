@@ -7,10 +7,26 @@ The `java.sql` layer is forked from Turso's `bindings/java` JDBC 4 driver. The J
 by a direct FFM core in `io.github.magnusp.turso.core`. There is no Hrana, no libSQL client, and
 no JNI.
 
+## Compatibility stance
+
+JDBC 4.3 is the contract. Embedded Turso is the target. The driver follows Turso's engine behavior
+and the JDBC specification.
+
+[xerial/sqlite-jdbc](https://github.com/xerial/sqlite-jdbc) is a reference implementation and the
+source of the selected test tree. It is guidance and steering, not ground truth. A passing test is
+evidence that the driver behaves sensibly, not a requirement to reproduce the reference driver's
+choices. When a test encodes a SQLite or xerial behavior that conflicts with Turso or with JDBC,
+the driver follows Turso and JDBC and records the difference in the quarantine list. The
+`xerial-control` run is a reference probe, not a parity gate.
+
+Some metadata values still follow the reference suite because the selected tests assert them, such
+as the default column size and the FLOAT mapping for NUMERIC and DECIMAL. Those are compatibility
+choices, not JDBC requirements.
+
 ## Status
 
-This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the JDBC
-surface exercised by the test suite, not the whole JDBC 4.3 API.
+This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the part
+of JDBC 4.3 that its tests exercise, not the whole API.
 
 ## Usage
 
@@ -49,8 +65,8 @@ The driver registers itself through `META-INF/services/java.sql.Driver`.
 
 ```sh
 mvn test                      # fast fit and smoke suite
-mvn verify                    # fast suite plus the xerial conformance suite
-mvn -Pxerial-control verify   # same pinned xerial tests against sqlite-jdbc 3.53.4.0
+mvn verify                    # fast suite plus the reference conformance suite
+mvn -Pxerial-control verify   # reference probe with sqlite-jdbc 3.53.4.0
 mvn package
 scripts/build-native.sh --check
 ```
@@ -59,33 +75,42 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 25 tests with 0 failures and 0 skips:
+`mvn test` runs 57 tests with 0 failures and 0 skips:
 
 - 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
+- 11 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
+- 9 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
+- 8 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
+- 4 experimental feature tests (`io.github.magnusp.turso.ExperimentalFeatureTest`)
 - 3 smoke tests (`io.github.magnusp.turso.SmokeTest`)
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 219 tests
-with 0 failures, 3 skips, and 39 quarantined methods. The report accounts for 258 total
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 244 tests
+with 0 failures, 3 skips, and 16 quarantined methods. The report accounts for 260 total
 (`total = executed + quarantined`):
 
-- 13 vendored xerial test classes from the pinned tree
+- 13 classes from the exported reference test tree
 - 6 conformance harness tests (`TursoHarnessTest`)
 - 3 quarantine guard tests (`TursoQuarantineTest`)
 
-The three skips are two upstream `@Disabled` methods and one upstream assumption that the engine
-build was compiled with `JDBC_EXTENSIONS`.
+The three skips are two `@Disabled` methods in the exported tree and one assumption that the
+engine build was compiled with `JDBC_EXTENSIONS`.
 
-The `xerial-control` profile skips the fast suite and runs the same 13 classes against
-`org.xerial:sqlite-jdbc:3.53.4.0`: 251 executed, 249 pass, 2 upstream `@Disabled` skips, 0
-quarantined, `control=true`.
+The `xerial-control` profile is a reference probe. It skips the fast suite and runs the same 13
+classes against `org.xerial:sqlite-jdbc:3.53.4.0`: 251 executed, 249 pass, 2 `@Disabled` skips, 0
+quarantined, `control=true`. The numbers describe the reference driver, not a target for Turso.
 
-### Xerial conformance harness
+### Reference conformance harness
 
-The 13 test classes and `Utils` come from a pinned export of `xerial/sqlite-jdbc` tag
-`3.53.4.0`, commit `cab7981c19ce04d691f0675f0b2586afc2bbf803`. `target/generated-test-sources/xerial`
-is populated from `upstream-xerial_sqlite-jdbc.manifest`; the committed upstream tree is checked
+The test tree is a harness, not a specification. It exists so the same scenarios can run against
+this driver and against the reference driver, and so behavior changes stay visible. The driver is
+not required to copy a reference result when JDBC or Turso says otherwise.
+
+The 13 test classes and `Utils` come from a pinned export of the reference implementation,
+`xerial/sqlite-jdbc` tag `3.53.4.0`, commit
+`cab7981c19ce04d691f0675f0b2586afc2bbf803`. `target/generated-test-sources/xerial`
+is populated from `upstream-xerial_sqlite-jdbc.manifest`; the committed reference tree is checked
 on every build:
 
 ```sh
@@ -93,7 +118,7 @@ tools/export-upstream --verify
 tools/export-upstream --self-test
 ```
 
-The test-only `TursoConformanceDriver` maps the xerial tests' `jdbc:sqlite:` URLs onto embedded
+The test-only `TursoConformanceDriver` maps the exported tests' `jdbc:sqlite:` URLs onto embedded
 Turso:
 
 - `jdbc:sqlite:` and `jdbc:sqlite::memory:` map to `jdbc:turso::memory:`.
@@ -105,13 +130,16 @@ Turso:
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
 checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
-non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 39
-explicit xerial methods with a reason, upstream difference, and issue link. The entries cover the
-missing DatabaseMetaData and ParameterMetaData surfaces (#14, #15, #16, #17, #21) and two engine
-schema limits (#19). `TursoQuarantineTest` rejects a blank or stale entry, and the filter is
-inactive in the control run. `TursoConformanceReport` writes `target/conformance-summary.txt` with
-`control`, total, executed, passed, failed, skipped, and quarantined counts
-(`total = executed + quarantined`). Failsafe reports are under `target/failsafe-reports`.
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 16
+explicit reference-test methods with a reason, the difference from the reference driver, and an
+issue link. The entries cover folded identifier case (#23), two experimental engine schema
+features (#19), and the deliberate stored-procedure contract (#21). `TursoQuarantineTest` rejects
+a blank or stale entry, and the filter is inactive in the reference probe. Pass
+`-Dconformance.quarantine.enabled=false` to run the quarantined methods against Turso while
+developing. `TursoConformanceReport` writes
+`target/conformance-summary.txt` with `control`, total, executed, passed, failed, skipped, and
+quarantined counts (`total = executed + quarantined`). Failsafe reports are under
+`target/failsafe-reports`.
 
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
@@ -206,8 +234,13 @@ provide.
   `SQLFeatureNotSupportedException` with SQLState `0A000`. `DatabaseMetaData.getProcedures` and
   `getProcedureColumns` throw the same exception, and `supportsStoredProcedures()` and
   `allProceduresAreCallable()` return `false`.
-- `DatabaseMetaData.getImportedKeys`, `getExportedKeys`, `getCrossReference`, and `getTypeInfo`
-  are not implemented.
+- `WITHOUT ROWID` tables and stored generated columns are rejected by this engine build. The
+  driver reports both as `SQLFeatureNotSupportedException` with SQLState `0A000` instead of a
+  parse error. Virtual generated columns work.
+- `Statement.executeUpdate` accepts semicolon-separated statements and returns the combined
+  affected-row count. `Statement.execute` and `executeQuery` execute one statement.
+- The engine folds every identifier to lower case, including quoted names. Metadata reports the
+  canonical stored name, so a table created as `MyTable` appears as `mytable`.
 - Encryption entry points exist in the core but are untested.
 - Metadata is best effort. Column types and precision come from the declared type in
   `sqlite_schema.sql`; expressions fall back to the value's storage class.

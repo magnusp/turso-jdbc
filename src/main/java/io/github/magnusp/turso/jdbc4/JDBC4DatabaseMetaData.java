@@ -8,24 +8,90 @@ import java.sql.RowIdLifetime;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoPropertiesHolder;
-import io.github.magnusp.turso.utils.Logger;
-import io.github.magnusp.turso.utils.LoggerFactory;
 
 /** JDBC 4 DatabaseMetaData implementation for Turso databases. */
 public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
-  private static final Logger logger = LoggerFactory.getLogger(JDBC4DatabaseMetaData.class);
+  private static final List<String> TABLE_COLUMNS =
+      List.of(
+          "TABLE_CAT",
+          "TABLE_SCHEM",
+          "TABLE_NAME",
+          "TABLE_TYPE",
+          "REMARKS",
+          "TYPE_CAT",
+          "TYPE_SCHEM",
+          "TYPE_NAME",
+          "SELF_REFERENCING_COL_NAME",
+          "REF_GENERATION");
+
+  private static final List<String> TABLE_TYPES =
+      List.of("GLOBAL TEMPORARY", "SYSTEM TABLE", "TABLE", "VIEW");
+
+  private static final List<String> COLUMN_COLUMNS =
+      List.of(
+          "TABLE_CAT",
+          "TABLE_SCHEM",
+          "TABLE_NAME",
+          "COLUMN_NAME",
+          "DATA_TYPE",
+          "TYPE_NAME",
+          "COLUMN_SIZE",
+          "BUFFER_LENGTH",
+          "DECIMAL_DIGITS",
+          "NUM_PREC_RADIX",
+          "NULLABLE",
+          "REMARKS",
+          "COLUMN_DEF",
+          "SQL_DATA_TYPE",
+          "SQL_DATETIME_SUB",
+          "CHAR_OCTET_LENGTH",
+          "ORDINAL_POSITION",
+          "IS_NULLABLE",
+          "SCOPE_CATALOG",
+          "SCOPE_SCHEMA",
+          "SCOPE_TABLE",
+          "SOURCE_DATA_TYPE",
+          "IS_AUTOINCREMENT",
+          "IS_GENERATEDCOLUMN");
+
+  private static final List<String> PRIMARY_KEY_COLUMNS =
+      List.of("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME");
+
+  private static final List<String> FOREIGN_KEY_COLUMNS =
+      List.of(
+          "PKTABLE_CAT",
+          "PKTABLE_SCHEM",
+          "PKTABLE_NAME",
+          "PKCOLUMN_NAME",
+          "KEY_SEQ",
+          "UPDATE_RULE",
+          "DELETE_RULE",
+          "FKTABLE_CAT",
+          "FKTABLE_SCHEM",
+          "FKTABLE_NAME",
+          "FKCOLUMN_NAME",
+          "FK_NAME",
+          "PK_NAME",
+          "DEFERRABILITY");
+
+  private static final int DEFAULT_COLUMN_SIZE = 2000000000;
 
   private final JDBC4Connection connection;
-
-  @Nullable private PreparedStatement getTables = null;
-
-  @Nullable private PreparedStatement getTableTypes = null;
-
-  @Nullable private PreparedStatement getTypeInfo = null;
 
   @Nullable private PreparedStatement getCatalogs = null;
 
@@ -60,10 +126,6 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   private ResultSet metadataQuery(PreparedStatement statement) throws SQLException {
     statement.closeOnCompletion();
     return statement.executeQuery();
-  }
-
-  private ResultSet emptyMetadataQuery(String sql) throws SQLException {
-    return metadataQuery(connection.prepareStatement(sql));
   }
 
   /**
@@ -721,85 +783,64 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     throw new SQLFeatureNotSupportedException("turso does not support stored procedures", "0A000");
   }
 
-  // TODO: make use of getSearchStringEscape
   @Override
   public ResultSet getTables(
       @Nullable String catalog,
       @Nullable String schemaPattern,
-      String tableNamePattern,
+      @Nullable String tableNamePattern,
       @Nullable String[] types)
       throws SQLException {
-    // SQLite doesn't support catalogs or schemas — reject if non-empty values provided
-    if (catalog != null && !catalog.isEmpty()) {
-      return emptyMetadataQuery("SELECT * FROM sqlite_schema WHERE 1=0");
+    if ((catalog != null && !catalog.isEmpty())
+        || (schemaPattern != null && !schemaPattern.isEmpty())) {
+      return MetadataRows.of(connection, TABLE_COLUMNS, List.of());
     }
 
-    if (schemaPattern != null && !schemaPattern.isEmpty()) {
-      return emptyMetadataQuery("SELECT * FROM sqlite_schema WHERE 1=0");
-    }
-
-    // Start building query
     StringBuilder sql =
         new StringBuilder(
-            "SELECT "
-                + "NULL AS TABLE_CAT, "
-                + "NULL AS TABLE_SCHEM, "
-                + "name AS TABLE_NAME, "
-                + "CASE type "
-                + "  WHEN 'table' THEN 'TABLE' "
-                + "  WHEN 'view' THEN 'VIEW' "
-                + "  ELSE UPPER(type) "
-                + "END AS TABLE_TYPE, "
-                + "NULL AS REMARKS, "
-                + "NULL AS TYPE_CAT, "
-                + "NULL AS TYPE_SCHEM, "
-                + "NULL AS TYPE_NAME, "
-                + "NULL AS SELF_REFERENCING_COL_NAME, "
-                + "NULL AS REF_GENERATION "
-                + "FROM sqlite_schema "
-                + "WHERE 1=1");
+            "SELECT NULL AS TABLE_CAT, NULL AS TABLE_SCHEM, t.name AS TABLE_NAME, "
+                + "t.TABLE_TYPE AS TABLE_TYPE, NULL AS REMARKS, NULL AS TYPE_CAT, "
+                + "NULL AS TYPE_SCHEM, NULL AS TYPE_NAME, "
+                + "NULL AS SELF_REFERENCING_COL_NAME, NULL AS REF_GENERATION FROM ("
+                + "SELECT 'sqlite_schema' AS name, 'SYSTEM TABLE' AS TABLE_TYPE "
+                + "UNION ALL SELECT name, 'SYSTEM TABLE' FROM sqlite_schema "
+                + "WHERE name LIKE 'sqlite\\_%' ESCAPE '\\' AND type IN ('table','view') "
+                + "UNION ALL SELECT name, CASE type WHEN 'view' THEN 'VIEW' ELSE 'TABLE' END "
+                + "FROM sqlite_schema WHERE type IN ('table','view') "
+                + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
+                + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\' "
+                + "UNION ALL SELECT name, 'GLOBAL TEMPORARY' FROM sqlite_temp_master "
+                + "WHERE type IN ('table','view')"
+                + ") t WHERE 1=1");
 
-    // Apply type filtering if needed
-    if (types != null && types.length > 0) {
-      sql.append(" AND type IN (");
-      for (int i = 0; i < types.length; i++) {
-        if (i > 0) sql.append(", ");
-        sql.append("?");
+    List<String> typeFilter = new ArrayList<>();
+    if (types != null) {
+      for (String type : types) {
+        if (type != null) {
+          typeFilter.add(type.toUpperCase(Locale.ROOT));
+        }
+      }
+    }
+    if (!typeFilter.isEmpty()) {
+      sql.append(" AND t.TABLE_TYPE IN (");
+      for (int i = 0; i < typeFilter.size(); i++) {
+        sql.append(i > 0 ? ", ?" : "?");
       }
       sql.append(")");
     }
-
-    // Apply table name pattern filtering
     if (tableNamePattern != null) {
-      sql.append(" AND name LIKE ?");
+      sql.append(" AND t.name LIKE ? ESCAPE '\\'");
     }
+    sql.append(" ORDER BY 4, 3");
 
-    // Comply with spec: sort by TABLE_TYPE, TABLE_CAT, TABLE_SCHEM, TABLE_NAME
-    sql.append(" ORDER BY TABLE_TYPE, TABLE_CAT, TABLE_SCHEM, TABLE_NAME");
-
-    // Prepare and bind statement
-    PreparedStatement stmt = connection.prepareStatement(sql.toString());
+    PreparedStatement statement = connection.prepareStatement(sql.toString());
     int paramIndex = 1;
-
-    if (types != null && types.length > 0) {
-      for (String type : types) {
-        String sqliteType;
-        if ("TABLE".equalsIgnoreCase(type)) {
-          sqliteType = "table";
-        } else if ("VIEW".equalsIgnoreCase(type)) {
-          sqliteType = "view";
-        } else {
-          sqliteType = type.toLowerCase();
-        }
-        stmt.setString(paramIndex++, sqliteType);
-      }
+    for (String type : typeFilter) {
+      statement.setString(paramIndex++, type);
     }
-
     if (tableNamePattern != null) {
-      stmt.setString(paramIndex, tableNamePattern);
+      statement.setString(paramIndex, tableNamePattern);
     }
-
-    return metadataQuery(stmt);
+    return metadataQuery(statement);
   }
 
   @Override
@@ -824,51 +865,58 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   }
 
   @Override
-  @SkipNullableCheck
-  public ResultSet getTableTypes() {
-    // TODO
-    return null;
+  public ResultSet getTableTypes() throws SQLException {
+    List<List<Object>> rows = new ArrayList<>();
+    for (String type : TABLE_TYPES) {
+      rows.add(List.of(type));
+    }
+    return MetadataRows.of(connection, List.of("TABLE_TYPE"), rows);
   }
 
   @Override
-  @SkipNullableCheck
   public ResultSet getColumns(
-      String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
+      @Nullable String catalog,
+      @Nullable String schemaPattern,
+      @Nullable String tableNamePattern,
+      @Nullable String columnNamePattern)
       throws SQLException {
-    if (catalog != null && !catalog.isEmpty()) {
-      return emptyMetadataQuery("SELECT 1 AS TABLE_NAME WHERE 1=0");
+    if ((catalog != null && !catalog.isEmpty())
+        || (schemaPattern != null && !schemaPattern.isEmpty())) {
+      return MetadataRows.of(connection, COLUMN_COLUMNS, List.of());
     }
-    if (schemaPattern != null && !schemaPattern.isEmpty()) {
-      return emptyMetadataQuery("SELECT 1 AS TABLE_NAME WHERE 1=0");
-    }
-    String tablePattern = tableNamePattern == null ? "%" : tableNamePattern;
+
     String columnPattern = columnNamePattern == null ? "%" : columnNamePattern;
-    String sql =
-        "SELECT NULL AS TABLE_CAT, NULL AS TABLE_SCHEM, m.name AS TABLE_NAME, "
-            + "p.name AS COLUMN_NAME, "
-            + "CASE WHEN UPPER(p.type) LIKE '%INT%' THEN 4 "
-            + "WHEN UPPER(p.type) LIKE '%CHAR%' OR UPPER(p.type) LIKE '%TEXT%' "
-            + "OR UPPER(p.type) LIKE '%STRING%' THEN 12 "
-            + "WHEN UPPER(p.type) LIKE '%REAL%' OR UPPER(p.type) LIKE '%FLOA%' "
-            + "OR UPPER(p.type) LIKE '%DOUB%' THEN 7 "
-            + "WHEN UPPER(p.type) LIKE '%BLOB%' THEN 2004 "
-            + "WHEN UPPER(p.type) LIKE '%NUM%' OR UPPER(p.type) LIKE '%DEC%' THEN 2 "
-            + "ELSE 1111 END AS DATA_TYPE, "
-            + "p.type AS TYPE_NAME, 0 AS COLUMN_SIZE, 0 AS BUFFER_LENGTH, "
-            + "0 AS DECIMAL_DIGITS, 10 AS NUM_PREC_RADIX, "
-            + "CASE WHEN p.\"notnull\" = 1 THEN 0 ELSE 1 END AS NULLABLE, "
-            + "NULL AS REMARKS, p.dflt_value AS COLUMN_DEF, 0 AS SQL_DATA_TYPE, "
-            + "0 AS SQL_DATETIME_SUB, 0 AS CHAR_OCTET_LENGTH, p.cid + 1 AS ORDINAL_POSITION, "
-            + "CASE WHEN p.\"notnull\" = 1 THEN 'NO' ELSE 'YES' END AS IS_NULLABLE, "
-            + "CASE WHEN p.pk = 1 AND UPPER(p.type) LIKE '%INT%' THEN 'YES' ELSE 'NO' END "
-            + "AS IS_AUTOINCREMENT, 'NO' AS IS_GENERATEDCOLUMN "
-            + "FROM sqlite_schema m JOIN pragma_table_xinfo(m.name) p "
-            + "WHERE m.type IN ('table','view') AND m.name LIKE ? AND p.name LIKE ? "
-            + "AND p.hidden != 1 ORDER BY m.name, p.cid";
-    PreparedStatement statement = connection.prepareStatement(sql);
-    statement.setString(1, tablePattern);
-    statement.setString(2, columnPattern);
-    return metadataQuery(statement);
+    Map<String, String> createSql = loadCreateSql();
+    List<String> tables = new ArrayList<>();
+    try (ResultSet tableRows = getTables(null, null, tableNamePattern, null)) {
+      while (tableRows.next()) {
+        tables.add(tableRows.getString("TABLE_NAME"));
+      }
+    }
+    tables.sort(Comparator.naturalOrder());
+
+    List<List<Object>> rows = new ArrayList<>();
+    for (String table : tables) {
+      String ddl = createSql.get(table.toLowerCase(Locale.ROOT));
+      Map<String, String> declaredTypes = declaredTypes(ddl);
+      List<PragmaColumn> columns = readColumns(table, columnPattern);
+      int primaryKeyColumns = 0;
+      for (PragmaColumn column : columns) {
+        if (column.primaryKey() > 0) {
+          primaryKeyColumns++;
+        }
+      }
+      boolean autoincrement =
+          ddl != null && ddl.toUpperCase(Locale.ROOT).contains("AUTOINCREMENT");
+      for (PragmaColumn column : columns) {
+        String declaredType =
+            declaredTypes.containsKey(column.name().toLowerCase(Locale.ROOT))
+                ? declaredTypes.get(column.name().toLowerCase(Locale.ROOT))
+                : column.type();
+        rows.add(columnRow(table, column, declaredType, autoincrement, primaryKeyColumns));
+      }
+    }
+    return MetadataRows.of(connection, COLUMN_COLUMNS, rows);
   }
 
   @Override
@@ -935,50 +983,193 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   }
 
   @Override
-  @SkipNullableCheck
-  public ResultSet getPrimaryKeys(String catalog, String schema, String table)
+  public ResultSet getPrimaryKeys(
+      @Nullable String catalog, @Nullable String schema, @Nullable String table)
       throws SQLException {
-    String sql =
-        "SELECT NULL AS TABLE_CAT, NULL AS TABLE_SCHEM, m.name AS TABLE_NAME, "
-            + "p.name AS COLUMN_NAME, p.pk AS KEY_SEQ, 'PRIMARY' AS PK_NAME "
-            + "FROM sqlite_schema m JOIN pragma_table_info(m.name) p "
-            + "WHERE m.name = ? AND p.pk > 0 ORDER BY p.pk";
-    PreparedStatement statement = connection.prepareStatement(sql);
-    statement.setString(1, table);
-    return metadataQuery(statement);
+    if (table == null) {
+      return MetadataRows.of(connection, PRIMARY_KEY_COLUMNS, List.of());
+    }
+    TableRef source = findTable(table);
+    if (source == null) {
+      return MetadataRows.of(connection, PRIMARY_KEY_COLUMNS, List.of());
+    }
+
+    List<PragmaColumn> pragma = readTableInfo(source.name());
+    SqliteDdl.PrimaryKey primaryKey = SqliteDdl.primaryKey(source.sql());
+    List<PrimaryKeyColumn> keyColumns = new ArrayList<>();
+    if (!primaryKey.columns().isEmpty()) {
+      List<String> names = primaryKey.columns();
+      for (int i = 0; i < names.size(); i++) {
+        keyColumns.add(new PrimaryKeyColumn(matchColumnName(names.get(i), pragma), i + 1));
+      }
+    } else {
+      for (PragmaColumn column : pragma) {
+        if (column.primaryKey() > 0) {
+          keyColumns.add(new PrimaryKeyColumn(column.name(), column.primaryKey()));
+        }
+      }
+    }
+    keyColumns.sort(Comparator.comparing(PrimaryKeyColumn::name));
+
+    List<List<Object>> rows = new ArrayList<>();
+    for (PrimaryKeyColumn column : keyColumns) {
+      rows.add(
+          Arrays.asList(
+              null, null, table, column.name(), column.sequence(), primaryKey.name()));
+    }
+    return MetadataRows.of(connection, PRIMARY_KEY_COLUMNS, rows);
   }
 
   @Override
-  @SkipNullableCheck
-  public ResultSet getImportedKeys(String catalog, String schema, String table) {
-    // TODO
-    return null;
+  public ResultSet getImportedKeys(
+      @Nullable String catalog, @Nullable String schema, @Nullable String table)
+      throws SQLException {
+    TableRef child = table == null ? null : findTable(table);
+    if (child == null) {
+      return emptyForeignKeys();
+    }
+    List<String> fkNames = reversedForeignKeyNames(child.sql());
+    List<List<Object>> rows = new ArrayList<>();
+    int group = -1;
+    long previousId = Long.MIN_VALUE;
+    for (ForeignKeyRef foreignKey : readForeignKeys(child.name())) {
+      if (foreignKey.id() != previousId) {
+        group++;
+        previousId = foreignKey.id();
+      }
+      String parentColumn = foreignKey.to();
+      TableRef parent = findTable(foreignKey.table());
+      if (parentColumn == null || parentColumn.isEmpty()) {
+        parentColumn = firstPrimaryKeyColumn(parent);
+      }
+      String pkName = primaryKeyName(parent);
+      rows.add(
+          foreignKeyRow(
+              catalog,
+              schema,
+              parent == null ? foreignKey.table() : parent.name(),
+              parentColumn,
+              foreignKey,
+              child.name(),
+              catalog,
+              schema,
+              foreignKeyName(fkNames, group),
+              pkName));
+    }
+    // Order imported keys by parent table for stable results, keeping the engine order within a
+    // parent.
+    rows.sort(
+        Comparator.comparing((List<Object> row) -> (String) row.get(2))
+            .thenComparingInt(row -> (Integer) row.get(4)));
+    return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
   }
 
   @Override
-  @SkipNullableCheck
-  public ResultSet getExportedKeys(String catalog, String schema, String table) {
-    return null;
+  public ResultSet getExportedKeys(
+      @Nullable String catalog, @Nullable String schema, @Nullable String table)
+      throws SQLException {
+    TableRef parent = table == null ? null : findTable(table);
+    if (parent == null) {
+      return emptyForeignKeys();
+    }
+    List<String> parentKeyColumns = primaryKeyColumns(parent);
+    if (parentKeyColumns.isEmpty()) {
+      return emptyForeignKeys();
+    }
+    Set<String> parentKeyLowerCase = new HashSet<>();
+    for (String column : parentKeyColumns) {
+      parentKeyLowerCase.add(column.toLowerCase(Locale.ROOT));
+    }
+
+    List<List<Object>> rows = new ArrayList<>();
+    for (TableRef child : userTables()) {
+      List<String> fkNames = reversedForeignKeyNames(child.sql());
+      int group = -1;
+      long previousId = Long.MIN_VALUE;
+      for (ForeignKeyRef foreignKey : readForeignKeys(child.name())) {
+        if (foreignKey.id() != previousId) {
+          group++;
+          previousId = foreignKey.id();
+        }
+        if (!foreignKey.table().equalsIgnoreCase(parent.name())) {
+          continue;
+        }
+        String parentColumn = foreignKey.to();
+        if (parentColumn == null || parentColumn.isEmpty()) {
+          parentColumn = parentKeyColumns.get(0);
+        }
+        String pkName = "";
+        if (parentKeyLowerCase.contains(parentColumn.toLowerCase(Locale.ROOT))) {
+          pkName = primaryKeyName(parent);
+        }
+        rows.add(
+            foreignKeyRow(
+                catalog,
+                schema,
+                parent.name(),
+                parentColumn,
+                foreignKey,
+                child.name(),
+                catalog,
+                schema,
+                foreignKeyName(fkNames, group),
+                pkName));
+      }
+    }
+    rows.sort(
+        Comparator.comparing((List<Object> row) -> (String) row.get(9))
+            .thenComparingInt(row -> ((Number) row.get(4)).intValue()));
+    return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, rows);
   }
 
   @Override
-  @SkipNullableCheck
   public ResultSet getCrossReference(
-      String parentCatalog,
-      String parentSchema,
-      String parentTable,
-      String foreignCatalog,
-      String foreignSchema,
-      String foreignTable) {
-    // TODO
-    return null;
+      @Nullable String parentCatalog,
+      @Nullable String parentSchema,
+      @Nullable String parentTable,
+      @Nullable String foreignCatalog,
+      @Nullable String foreignSchema,
+      @Nullable String foreignTable)
+      throws SQLException {
+    if (parentTable == null) {
+      return getExportedKeys(foreignCatalog, foreignSchema, foreignTable);
+    }
+    if (foreignTable == null) {
+      return getImportedKeys(parentCatalog, parentSchema, parentTable);
+    }
+    return emptyForeignKeys();
   }
 
   @Override
-  @SkipNullableCheck
-  public ResultSet getTypeInfo() {
-    // TODO
-    return null;
+  public ResultSet getTypeInfo() throws SQLException {
+    List<List<Object>> rows = new ArrayList<>();
+    rows.add(typeInfoRow("NULL", Types.NULL, false, true, false));
+    rows.add(typeInfoRow("INTEGER", Types.INTEGER, false, false, true));
+    rows.add(typeInfoRow("REAL", Types.REAL, false, false, false));
+    rows.add(typeInfoRow("TEXT", Types.VARCHAR, true, true, false));
+    rows.add(typeInfoRow("BLOB", Types.BLOB, false, true, false));
+    return MetadataRows.of(
+        connection,
+        List.of(
+            "TYPE_NAME",
+            "DATA_TYPE",
+            "PRECISION",
+            "LITERAL_PREFIX",
+            "LITERAL_SUFFIX",
+            "CREATE_PARAMS",
+            "NULLABLE",
+            "CASE_SENSITIVE",
+            "SEARCHABLE",
+            "UNSIGNED_ATTRIBUTE",
+            "FIXED_PREC_SCALE",
+            "AUTO_INCREMENT",
+            "LOCAL_TYPE_NAME",
+            "MINIMUM_SCALE",
+            "MAXIMUM_SCALE",
+            "SQL_DATA_TYPE",
+            "SQL_DATETIME_SUB",
+            "NUM_PREC_RADIX"),
+        rows);
   }
 
   @Override
@@ -1274,5 +1465,361 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   @Override
   public boolean isWrapperFor(Class<?> iface) throws SQLException {
     return false;
+  }
+
+  private record PragmaColumn(
+      long cid,
+      String name,
+      @Nullable String type,
+      int notNull,
+      @Nullable String defaultValue,
+      int primaryKey,
+      int hidden) {}
+
+  private record TableRef(String name, @Nullable String sql) {}
+
+  private record ForeignKeyRef(
+      long id,
+      int sequence,
+      String table,
+      String from,
+      @Nullable String to,
+      @Nullable String onUpdate,
+      @Nullable String onDelete) {}
+
+  private record PrimaryKeyColumn(String name, int sequence) {}
+
+  private ResultSet emptyForeignKeys() throws SQLException {
+    return MetadataRows.of(connection, FOREIGN_KEY_COLUMNS, List.of());
+  }
+
+  private Map<String, String> loadCreateSql() throws SQLException {
+    Map<String, String> createSql = new HashMap<>();
+    String sql =
+        "SELECT name, sql FROM sqlite_schema "
+            + "UNION ALL SELECT name, sql FROM sqlite_temp_master";
+    try (PreparedStatement statement = connection.prepareStatement(sql);
+        ResultSet rows = statement.executeQuery()) {
+      while (rows.next()) {
+        String name = rows.getString("name");
+        if (name != null) {
+          createSql.put(name.toLowerCase(Locale.ROOT), rows.getString("sql"));
+        }
+      }
+    }
+    return createSql;
+  }
+
+  private static Map<String, String> declaredTypes(@Nullable String createSql) {
+    Map<String, String> types = new HashMap<>();
+    for (SqliteDdl.ColumnDefinition column : SqliteDdl.columns(createSql)) {
+      types.put(column.name().toLowerCase(Locale.ROOT), column.declaredType());
+    }
+    return types;
+  }
+
+  private List<PragmaColumn> readColumns(String table, String columnPattern) throws SQLException {
+    String sql =
+        "SELECT cid, name, type, \"notnull\", dflt_value, pk, hidden "
+            + "FROM pragma_table_xinfo(?) WHERE upper(name) LIKE upper(?) ESCAPE '\\' "
+            + "ORDER BY cid";
+    List<PragmaColumn> columns = new ArrayList<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, table);
+      statement.setString(2, columnPattern);
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          columns.add(
+              new PragmaColumn(
+                  rows.getLong("cid"),
+                  rows.getString("name"),
+                  rows.getString("type"),
+                  rows.getInt("notnull"),
+                  rows.getString("dflt_value"),
+                  rows.getInt("pk"),
+                  rows.getInt("hidden")));
+        }
+      }
+    }
+    return columns;
+  }
+
+  private List<PragmaColumn> readTableInfo(String table) throws SQLException {
+    String sql =
+        "SELECT cid, name, type, \"notnull\", dflt_value, pk "
+            + "FROM pragma_table_info(?) ORDER BY cid";
+    List<PragmaColumn> columns = new ArrayList<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, table);
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          columns.add(
+              new PragmaColumn(
+                  rows.getLong("cid"),
+                  rows.getString("name"),
+                  rows.getString("type"),
+                  rows.getInt("notnull"),
+                  rows.getString("dflt_value"),
+                  rows.getInt("pk"),
+                  0));
+        }
+      }
+    }
+    return columns;
+  }
+
+  @Nullable
+  private TableRef findTable(String name) throws SQLException {
+    String sql =
+        "SELECT name, sql FROM sqlite_schema WHERE type='table' AND lower(name)=lower(?) "
+            + "UNION ALL SELECT name, sql FROM sqlite_temp_master "
+            + "WHERE type='table' AND lower(name)=lower(?) LIMIT 1";
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, name);
+      statement.setString(2, name);
+      try (ResultSet rows = statement.executeQuery()) {
+        if (rows.next()) {
+          return new TableRef(rows.getString("name"), rows.getString("sql"));
+        }
+      }
+    }
+    return null;
+  }
+
+  private List<TableRef> userTables() throws SQLException {
+    String sql =
+        "SELECT name, sql FROM sqlite_schema WHERE type='table' "
+            + "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' "
+            + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\'";
+    List<TableRef> tables = new ArrayList<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql);
+        ResultSet rows = statement.executeQuery()) {
+      while (rows.next()) {
+        tables.add(new TableRef(rows.getString("name"), rows.getString("sql")));
+      }
+    }
+    return tables;
+  }
+
+  private List<ForeignKeyRef> readForeignKeys(String table) throws SQLException {
+    String sql =
+        "SELECT id, seq, \"table\", \"from\", \"to\", on_update, on_delete "
+            + "FROM pragma_foreign_key_list(?)";
+    List<ForeignKeyRef> keys = new ArrayList<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, table);
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          keys.add(
+              new ForeignKeyRef(
+                  rows.getLong("id"),
+                  rows.getInt("seq"),
+                  rows.getString("table"),
+                  rows.getString("from"),
+                  rows.getString("to"),
+                  rows.getString("on_update"),
+                  rows.getString("on_delete")));
+        }
+      }
+    }
+    return keys;
+  }
+
+  private static List<String> reversedForeignKeyNames(@Nullable String createSql) {
+    List<String> names = new ArrayList<>(SqliteDdl.foreignKeyNames(createSql));
+    Collections.reverse(names);
+    return names;
+  }
+
+  private static String foreignKeyName(List<String> names, int group) {
+    if (group < 0 || group >= names.size() || names.get(group) == null) {
+      return "";
+    }
+    return names.get(group);
+  }
+
+  private List<String> primaryKeyColumns(TableRef table) throws SQLException {
+    SqliteDdl.PrimaryKey primaryKey = SqliteDdl.primaryKey(table.sql());
+    List<String> columns = new ArrayList<>(primaryKey.columns());
+    if (columns.isEmpty()) {
+      for (PragmaColumn column : readTableInfo(table.name())) {
+        if (column.primaryKey() > 0) {
+          columns.add(column.name());
+        }
+      }
+    }
+    return columns;
+  }
+
+  private static String primaryKeyName(@Nullable TableRef table) {
+    if (table == null) {
+      return "";
+    }
+    String name = SqliteDdl.primaryKey(table.sql()).name();
+    return name == null ? "" : name;
+  }
+
+  private String firstPrimaryKeyColumn(@Nullable TableRef table) throws SQLException {
+    if (table == null) {
+      return "";
+    }
+    List<String> columns = primaryKeyColumns(table);
+    return columns.isEmpty() ? "" : columns.get(0);
+  }
+
+  private static String matchColumnName(String name, List<PragmaColumn> columns) {
+    for (PragmaColumn column : columns) {
+      if (column.name().equalsIgnoreCase(name)) {
+        return column.name();
+      }
+    }
+    return name;
+  }
+
+  private static List<Object> columnRow(
+      String table,
+      PragmaColumn column,
+      @Nullable String declaredType,
+      boolean autoincrement,
+      int primaryKeyColumns) {
+    String upper = declaredType == null ? "" : declaredType.trim().toUpperCase(Locale.ROOT);
+    String typeName = upper;
+    int columnSize = DEFAULT_COLUMN_SIZE;
+    int decimalDigits = 10;
+    int open = upper.indexOf('(');
+    if (open > 0) {
+      int close = upper.lastIndexOf(')');
+      if (close > open) {
+        typeName = upper.substring(0, open).trim();
+        String params = upper.substring(open + 1, close);
+        int comma = params.indexOf(',');
+        try {
+          if (comma >= 0) {
+            int precision = Integer.parseInt(params.substring(0, comma).trim());
+            int scale = Integer.parseInt(params.substring(comma + 1).trim());
+            columnSize = precision + scale;
+            decimalDigits = scale;
+          } else {
+            columnSize = Integer.parseInt(params.trim());
+            decimalDigits = 0;
+          }
+        } catch (NumberFormatException e) {
+          // Keep the defaults when the declared size is not numeric.
+        }
+      }
+    }
+
+    int dataType;
+    if (upper.contains("INT") || upper.contains("BOOL")) {
+      dataType = Types.INTEGER;
+      decimalDigits = 0;
+    } else if (upper.contains("CHAR")
+        || upper.contains("CLOB")
+        || upper.contains("TEXT")
+        || upper.contains("BLOB")) {
+      dataType = Types.VARCHAR;
+      decimalDigits = 0;
+    } else if (upper.contains("REAL")
+        || upper.contains("FLOA")
+        || upper.contains("DOUB")
+        || upper.contains("DEC")
+        || upper.contains("NUM")) {
+      dataType = Types.FLOAT;
+    } else {
+      dataType = Types.VARCHAR;
+    }
+
+    int nullable = column.notNull() == 1 ? 0 : 1;
+    boolean generated = column.hidden() == 2 || column.hidden() == 3;
+    boolean isAutoincrement = autoincrement && primaryKeyColumns == 1 && column.primaryKey() == 1;
+    return Arrays.asList(
+        null,
+        null,
+        table,
+        column.name(),
+        dataType,
+        typeName,
+        columnSize,
+        null,
+        decimalDigits,
+        10,
+        nullable,
+        null,
+        column.defaultValue(),
+        0,
+        0,
+        0,
+        column.cid() + 1,
+        nullable == 0 ? "NO" : "YES",
+        null,
+        null,
+        null,
+        null,
+        isAutoincrement ? "YES" : "NO",
+        generated ? "YES" : "NO");
+  }
+
+  private static List<Object> typeInfoRow(
+      String name, int dataType, boolean caseSensitive, boolean unsigned, boolean autoIncrement) {
+    return Arrays.asList(
+        name,
+        dataType,
+        0,
+        null,
+        null,
+        null,
+        typeNullable,
+        caseSensitive ? 1 : 0,
+        typeSearchable,
+        unsigned ? 1 : 0,
+        0,
+        autoIncrement ? 1 : 0,
+        null,
+        0,
+        0,
+        0,
+        0,
+        10);
+  }
+
+  private static List<Object> foreignKeyRow(
+      @Nullable String pkCatalog,
+      @Nullable String pkSchema,
+      String pkTable,
+      @Nullable String pkColumn,
+      ForeignKeyRef foreignKey,
+      String fkTable,
+      @Nullable String fkCatalog,
+      @Nullable String fkSchema,
+      String fkName,
+      String pkName) {
+    return Arrays.asList(
+        pkCatalog,
+        pkSchema,
+        pkTable,
+        pkColumn,
+        foreignKey.sequence() + 1,
+        foreignKeyRule(foreignKey.onUpdate()),
+        foreignKeyRule(foreignKey.onDelete()),
+        fkCatalog,
+        fkSchema,
+        fkTable,
+        foreignKey.from(),
+        fkName,
+        pkName,
+        importedKeyInitiallyDeferred);
+  }
+
+  private static int foreignKeyRule(@Nullable String rule) {
+    if (rule == null) {
+      return importedKeyNoAction;
+    }
+    return switch (rule.toUpperCase(Locale.ROOT)) {
+      case "CASCADE" -> importedKeyCascade;
+      case "SET NULL" -> importedKeySetNull;
+      case "SET DEFAULT" -> importedKeySetDefault;
+      case "RESTRICT" -> importedKeyRestrict;
+      default -> importedKeyNoAction;
+    };
   }
 }

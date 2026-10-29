@@ -17,7 +17,7 @@ public final class TursoStatement implements AutoCloseable {
   private String[] columnDeclaredTypes = new String[0];
 
   public TursoStatement(String sql, long statementPointer, TursoConnection connection) {
-    this.sql = sql;
+    this.sql = SqlText.stripLeadingTrivia(sql);
     this.statementPointer = statementPointer;
     this.connection = connection;
     this.resultSet = TursoResultSet.of(this);
@@ -42,6 +42,7 @@ public final class TursoStatement implements AutoCloseable {
       return TursoStepResult.row(values);
     }
     if (status == TursoNative.DONE) {
+      connection.noteTransactionControl(sql);
       if (isDml(sql)) {
         connection.addChanges(TursoNative.changes(pointer));
       }
@@ -178,15 +179,13 @@ public final class TursoStatement implements AutoCloseable {
     return statementPointer;
   }
 
+  private static final java.util.regex.Pattern DML_PATTERN =
+      java.util.regex.Pattern.compile(
+          "^\\s*(?:WITH\\b.*\\)\\s*)?(?:INSERT|UPDATE|DELETE|REPLACE)\\b",
+          java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+
   private static boolean isDml(String sql) {
-    if (sql == null) {
-      return false;
-    }
-    String trimmed = sql.stripLeading().toUpperCase(java.util.Locale.ROOT);
-    return trimmed.startsWith("INSERT")
-        || trimmed.startsWith("UPDATE")
-        || trimmed.startsWith("DELETE")
-        || trimmed.startsWith("REPLACE");
+    return sql != null && DML_PATTERN.matcher(sql).find();
   }
 
   @Override

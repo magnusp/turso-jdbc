@@ -30,9 +30,9 @@ jobs:
           distribution: temurin
           java-version: "25"
           cache: maven
-      - name: Verify the pinned upstream test tree
+      - name: Verify the exported reference test tree
         run: tools/export-upstream --verify
-      - name: Self-test the upstream export verifier
+      - name: Self-test the export verifier
         run: tools/export-upstream --self-test
       - run: mvn -B verify
       - name: Upload conformance results
@@ -55,7 +55,7 @@ jobs:
           java-version: "25"
           cache: maven
       - run: mvn -B -Pxerial-control verify
-      - name: Upload xerial control results
+      - name: Upload reference probe results
         if: always()
         uses: actions/upload-artifact@v7
         with:

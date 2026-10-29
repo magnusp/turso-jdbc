@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Properties;
+import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.utils.Logger;
 import io.github.magnusp.turso.utils.LoggerFactory;
 
@@ -19,7 +20,7 @@ public final class TursoConnection {
 
   private boolean autoCommit = true;
   private int transactionIsolation = Connection.TRANSACTION_SERIALIZABLE;
-  private boolean inTransaction = false;
+  private volatile boolean inTransaction = false;
   private final Object transactionLock = new Object();
   private long totalChanges;
 
@@ -91,6 +92,25 @@ public final class TursoConnection {
 
   public TursoStatement prepare(String sql) throws SQLException {
     return prepare(sql, true);
+  }
+
+  /**
+   * Parses the first statement in {@code sql} and returns it with the char offset of the tail.
+   * {@code statement} is null when nothing parseable remains.
+   */
+  public ParsedStatement prepareFirst(String sql) throws SQLException {
+    logger.trace("DriverManager [{}] [Turso EXEC] {}", Thread.currentThread().getName(), sql);
+    ensureTransactionStarted(sql);
+    synchronized (this) {
+      checkOpen();
+      TursoNative.PreparedFirst prepared = TursoNative.prepareFirst(connectionPtr, sql);
+      if (prepared.statement() == 0) {
+        return new ParsedStatement(null, prepared.tail());
+      }
+      return new ParsedStatement(
+          new TursoStatement(sql.substring(0, prepared.tail()), prepared.statement(), this),
+          prepared.tail());
+    }
   }
 
   private TursoStatement prepare(String sql, boolean checkTransaction) throws SQLException {
@@ -196,6 +216,22 @@ public final class TursoConnection {
     }
   }
 
+  /** Keeps the driver's transaction flag in step with SQL transaction control statements. */
+  void noteTransactionControl(String sql) {
+    String upper = SqlText.stripLeadingTrivia(sql).toUpperCase(java.util.Locale.ROOT);
+    boolean begins = upper.startsWith("BEGIN") || upper.startsWith("START TRANSACTION");
+    boolean ends =
+        upper.startsWith("COMMIT")
+            || upper.equals("END")
+            || upper.startsWith("END ")
+            || (upper.startsWith("ROLLBACK") && !upper.startsWith("ROLLBACK TO"));
+    if (begins || ends) {
+      synchronized (this) {
+        inTransaction = begins;
+      }
+    }
+  }
+
   public synchronized long getTotalChanges() {
     return totalChanges;
   }
@@ -206,10 +242,10 @@ public final class TursoConnection {
   }
 
   private void ensureTransactionStarted(String sql) throws SQLException {
-    if (autoCommit || inTransaction) {
+    if (autoCommit || inTransaction || !SqlText.hasContent(sql)) {
       return;
     }
-    String trimmed = sql.trim().toUpperCase(java.util.Locale.ROOT);
+    String trimmed = SqlText.stripLeadingTrivia(sql).toUpperCase(java.util.Locale.ROOT);
     if (trimmed.startsWith("BEGIN")
         || trimmed.startsWith("COMMIT")
         || trimmed.startsWith("ROLLBACK")) {
@@ -225,4 +261,7 @@ public final class TursoConnection {
       statement.getResultSet().consumeAll();
     }
   }
+
+  /** One statement parsed from the head of a SQL string, plus the char offset of its tail. */
+  public record ParsedStatement(@Nullable TursoStatement statement, int tail) {}
 }
