@@ -58,6 +58,9 @@ final class TursoTypeMapping {
     if (type.contains("NUM")) {
       return Types.NUMERIC;
     }
+    if (type.equals("BIT")) {
+      return Types.BIT;
+    }
     if (type.contains("BOOL")) {
       return Types.BOOLEAN;
     }
@@ -94,7 +97,8 @@ final class TursoTypeMapping {
       case Types.REAL, Types.FLOAT, Types.DOUBLE -> "java.lang.Double";
       case Types.BLOB, Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> "java.lang.Object";
       case Types.NUMERIC, Types.DECIMAL -> "java.math.BigDecimal";
-      case Types.BOOLEAN, Types.BIT -> "java.lang.Integer";
+      case Types.BOOLEAN -> "java.lang.Integer";
+      case Types.BIT -> "java.lang.Boolean";
       case Types.DATE -> "java.sql.Date";
       case Types.TIME -> "java.sql.Time";
       case Types.TIMESTAMP -> "java.sql.Timestamp";

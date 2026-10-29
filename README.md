@@ -75,9 +75,11 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 60 tests with 0 failures and 0 skips:
+`mvn test` runs 61 tests with 0 failures and 0 skips:
+||||||| parent of 6d0bc83 (fix(jdbc): read BIT columns as Boolean with Types.BIT)
+`mvn test` runs 61 tests with 0 failures and 0 skips:
 
-- 14 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
+- 15 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
 - 11 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
 - 12 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
 - 8 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
@@ -86,8 +88,8 @@ file on first use.
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 244 tests
-with 0 failures, 3 skips, and 16 quarantined methods. The report accounts for 260 total
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 243 tests
+with 0 failures, 3 skips, and 17 quarantined methods. The report accounts for 260 total
 (`total = executed + quarantined`):
 
 - 13 classes from the exported reference test tree
@@ -130,10 +132,11 @@ Turso:
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
 checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
-non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 16
+non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes 17
 explicit reference-test methods with a reason, the difference from the reference driver, and an
 issue link. The entries cover folded identifier case (#23), two experimental engine schema
-features (#19), and the deliberate stored-procedure contract (#21). `TursoQuarantineTest` rejects
+features (#19), the deliberate stored-procedure contract (#21), and BIT read as Boolean (#20).
+`TursoQuarantineTest` rejects
 a blank or stale entry, and the filter is inactive in the reference probe. Pass
 `-Dconformance.quarantine.enabled=false` to run the quarantined methods against Turso while
 developing. `TursoConformanceReport` writes
@@ -152,8 +155,8 @@ tools/check-quarantine
 
 The run writes `target/quarantine-ratchet.tsv`, one row per entry. `tools/check-quarantine` prints a
 per-status count summary when every row is `failed`, and `tools/check-quarantine --self-test`
-exercises the gate on temporary fixtures. All 16 entries still fail as expected (12 for #23, 4 for
-#19 and #21), so the job is green today.
+exercises the gate on temporary fixtures. All 17 entries still fail as expected (12 for #23, 4 for
+#19 and #21, 1 for #20), so the job is green today.
 
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
