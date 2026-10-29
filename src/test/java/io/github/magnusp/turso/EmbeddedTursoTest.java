@@ -446,4 +446,58 @@ class EmbeddedTursoTest {
         }
     }
 
+    @Test
+    void setReadOnlyRejectsWritesAndRestoresThemOnRequest(@TempDir Path dir) throws Exception {
+        try (Connection c = connect(db(dir, "readonly")); Statement s = c.createStatement()) {
+            s.executeUpdate("CREATE TABLE r (v TEXT)");
+            s.executeUpdate("INSERT INTO r (v) VALUES ('before')");
+
+            assertThat(c.isReadOnly()).isFalse();
+            c.setReadOnly(true);
+            assertThat(c.isReadOnly()).isTrue();
+            assertThat(c.getMetaData().isReadOnly()).isTrue();
+
+            assertThatThrownBy(() -> s.executeUpdate("INSERT INTO r (v) VALUES ('blocked')"))
+                    .isInstanceOf(SQLException.class);
+            try (ResultSet rs = s.executeQuery("SELECT count(*) FROM r")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getLong(1)).isEqualTo(1L);
+            }
+
+            c.setReadOnly(false);
+            assertThat(c.isReadOnly()).isFalse();
+            assertThat(c.getMetaData().isReadOnly()).isFalse();
+            assertThat(s.executeUpdate("INSERT INTO r (v) VALUES ('after')")).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void setReadOnlyAndIsReadOnlyDoNotHoldWriteLockOpenWithAutoCommitOff(@TempDir Path dir)
+            throws Exception {
+        String path = db(dir, "readonly-lock");
+        try (Connection setup = connect(path); Statement s = setup.createStatement()) {
+            s.executeUpdate("CREATE TABLE r (v TEXT)");
+        }
+
+        try (Connection first = connect(path)) {
+            first.setAutoCommit(false);
+            first.setReadOnly(true);
+            assertThat(first.isReadOnly()).isTrue();
+
+            try (Connection second = connect(path);
+                    Statement other = second.createStatement()) {
+                assertThat(other.executeUpdate("INSERT INTO r (v) VALUES ('second')")).isEqualTo(1);
+            }
+
+            try (Statement s = first.createStatement()) {
+                s.execute("BEGIN");
+                try (ResultSet rs = s.executeQuery("SELECT count(*) FROM r")) {
+                    assertThat(rs.next()).isTrue();
+                    assertThat(rs.getLong(1)).isEqualTo(1L);
+                }
+                s.execute("COMMIT");
+            }
+        }
+    }
+
 }

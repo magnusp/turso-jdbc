@@ -9,6 +9,7 @@ import java.util.Properties;
 import java.util.concurrent.Executor;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoConnection;
+import io.github.magnusp.turso.core.TursoResultSet;
 import io.github.magnusp.turso.core.TursoStatement;
 
 /** JDBC 4 Connection implementation for Turso databases. */
@@ -139,13 +140,20 @@ public final class JDBC4Connection implements Connection {
 
   @Override
   public void setReadOnly(boolean readOnly) throws SQLException {
-    // TODO
+    connection.checkOpen();
+    try (TursoStatement statement =
+        connection.prepareWithoutTransaction("PRAGMA query_only = " + (readOnly ? 1 : 0))) {
+      statement.getResultSet().consumeAll();
+    }
   }
 
   @Override
   public boolean isReadOnly() throws SQLException {
-    // TODO
-    return false;
+    connection.checkOpen();
+    try (TursoStatement statement = connection.prepareWithoutTransaction("PRAGMA query_only")) {
+      TursoResultSet rs = statement.getResultSet();
+      return rs.next() && rs.get(1) instanceof Number value && value.longValue() == 1L;
+    }
   }
 
   @Override
