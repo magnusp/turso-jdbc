@@ -4,6 +4,7 @@ import java.sql.*;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executor;
@@ -15,9 +16,12 @@ import io.github.magnusp.turso.core.TursoStatement;
 /** JDBC 4 Connection implementation for Turso databases. */
 public final class JDBC4Connection implements Connection {
 
+  static final List<String> CATALOGS = List.of("main", "temp");
+
   private final TursoConnection connection;
 
   private Map<String, Class<?>> typeMap = new HashMap<>();
+  private String catalog = "main";
   private int savepointCounter;
   private final Deque<TursoSavepoint> savepoints = new ArrayDeque<>();
 
@@ -157,11 +161,16 @@ public final class JDBC4Connection implements Connection {
   }
 
   @Override
-  public void setCatalog(String catalog) throws SQLException {}
+  public void setCatalog(String catalog) throws SQLException {
+    if (catalog == null || !CATALOGS.contains(catalog)) {
+      throw new SQLException("unknown catalog: " + catalog);
+    }
+    this.catalog = catalog;
+  }
 
   @Override
   public String getCatalog() throws SQLException {
-    return "";
+    return catalog;
   }
 
   @Override
@@ -437,14 +446,15 @@ public final class JDBC4Connection implements Connection {
 
   @Override
   public void setSchema(String schema) throws SQLException {
-    // TODO
+    if (schema != null) {
+      throw new SQLFeatureNotSupportedException("turso has no schemas");
+    }
   }
 
   @Override
   @SkipNullableCheck
   public String getSchema() throws SQLException {
-    // TODO
-    return "";
+    return null;
   }
 
   @Override

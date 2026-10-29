@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
@@ -125,8 +126,6 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   private static final int DEFAULT_COLUMN_SIZE = 2000000000;
 
   private final JDBC4Connection connection;
-
-  @Nullable private PreparedStatement getCatalogs = null;
 
   @Nullable private PreparedStatement getSchemas = null;
 
@@ -513,13 +512,13 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public String getCatalogTerm() {
-    return "catalog";
+    return "database";
   }
 
   @Override
   public boolean isCatalogAtStart() {
-    // sqlite and turso doesn't use catalog
-    return false;
+    // Qualified names are written catalog.table, for example main.t.
+    return true;
   }
 
   @Override
@@ -817,18 +816,18 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       @Nullable String tableNamePattern,
       @Nullable String[] types)
       throws SQLException {
-    if ((catalog != null && !catalog.isEmpty())
-        || (schemaPattern != null && !schemaPattern.isEmpty())) {
+    if (schemaPattern != null && !schemaPattern.isEmpty()) {
       return MetadataRows.of(connection, TABLE_COLUMNS, List.of());
     }
 
     StringBuilder sql =
         new StringBuilder(
-            "SELECT NULL AS TABLE_CAT, NULL AS TABLE_SCHEM, t.name AS TABLE_NAME, "
+            "SELECT t.TABLE_CAT AS TABLE_CAT, NULL AS TABLE_SCHEM, t.name AS TABLE_NAME, "
                 + "t.TABLE_TYPE AS TABLE_TYPE, NULL AS REMARKS, NULL AS TYPE_CAT, "
                 + "NULL AS TYPE_SCHEM, NULL AS TYPE_NAME, "
                 + "NULL AS SELF_REFERENCING_COL_NAME, NULL AS REF_GENERATION FROM ("
-                + "SELECT name, CASE WHEN schema = 'temp' THEN 'GLOBAL TEMPORARY' "
+                + "SELECT schema AS TABLE_CAT, name, "
+                + "CASE WHEN schema = 'temp' THEN 'GLOBAL TEMPORARY' "
                 + "WHEN name LIKE 'sqlite\\_%' ESCAPE '\\' THEN 'SYSTEM TABLE' "
                 + "WHEN type = 'view' THEN 'VIEW' ELSE 'TABLE' END AS TABLE_TYPE "
                 + "FROM pragma_table_list WHERE type IN ('table','view') "
@@ -836,6 +835,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
                 + "AND name NOT LIKE '\\_\\_turso\\_internal\\_seq\\_%' ESCAPE '\\'"
                 + ") t WHERE 1=1");
 
+    if (catalog != null && !catalog.isEmpty()) {
+      sql.append(" AND t.TABLE_CAT = ?");
+    }
     List<String> typeFilter = new ArrayList<>();
     if (types != null) {
       for (String type : types) {
@@ -858,6 +860,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
     PreparedStatement statement = connection.prepareStatement(sql.toString());
     int paramIndex = 1;
+    if (catalog != null && !catalog.isEmpty()) {
+      statement.setString(paramIndex++, catalog);
+    }
     for (String type : typeFilter) {
       statement.setString(paramIndex++, type);
     }
@@ -880,12 +885,11 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public ResultSet getCatalogs() throws SQLException {
-    if (getCatalogs == null || getCatalogs.isClosed()) {
-      connection.checkOpen();
-      getCatalogs = connection.prepareStatement("select null as TABLE_CAT limit 0;");
+    List<List<Object>> rows = new ArrayList<>();
+    for (String catalog : JDBC4Connection.CATALOGS) {
+      rows.add(List.of(catalog));
     }
-
-    return metadataQuery(getCatalogs);
+    return MetadataRows.of(connection, List.of("TABLE_CAT"), rows);
   }
 
   @Override
@@ -904,25 +908,27 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       @Nullable String tableNamePattern,
       @Nullable String columnNamePattern)
       throws SQLException {
-    if ((catalog != null && !catalog.isEmpty())
-        || (schemaPattern != null && !schemaPattern.isEmpty())) {
+    if (schemaPattern != null && !schemaPattern.isEmpty()) {
       return MetadataRows.of(connection, COLUMN_COLUMNS, List.of());
     }
 
     String columnPattern = columnNamePattern == null ? "%" : columnNamePattern;
     Map<String, String> createSql = loadCreateSql();
-    Set<String> tables = new TreeSet<>();
-    try (ResultSet tableRows = getTables(null, null, tableNamePattern, null)) {
+    Map<String, CatalogTable> uniqueTables = new TreeMap<>();
+    try (ResultSet tableRows = getTables(catalog, null, tableNamePattern, null)) {
       while (tableRows.next()) {
-        tables.add(tableRows.getString("TABLE_NAME"));
+        CatalogTable table =
+            new CatalogTable(tableRows.getString("TABLE_CAT"), tableRows.getString("TABLE_NAME"));
+        uniqueTables.putIfAbsent(table.name().toLowerCase(Locale.ROOT), table);
       }
     }
+    List<CatalogTable> tables = new ArrayList<>(uniqueTables.values());
 
     List<List<Object>> rows = new ArrayList<>();
-    for (String table : tables) {
-      String ddl = createSql.get(table.toLowerCase(Locale.ROOT));
+    for (CatalogTable table : tables) {
+      String ddl = createSql.get(table.name().toLowerCase(Locale.ROOT));
       Map<String, String> declaredTypes = declaredTypes(ddl);
-      List<PragmaColumn> columns = readColumns(table, columnPattern);
+      List<PragmaColumn> columns = readColumns(table.name(), columnPattern);
       int primaryKeyColumns = 0;
       for (PragmaColumn column : columns) {
         if (column.primaryKey() > 0) {
@@ -936,7 +942,14 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
             declaredTypes.containsKey(column.name().toLowerCase(Locale.ROOT))
                 ? declaredTypes.get(column.name().toLowerCase(Locale.ROOT))
                 : column.type();
-        rows.add(columnRow(table, column, declaredType, autoincrement, primaryKeyColumns));
+        rows.add(
+            columnRow(
+                table.catalog(),
+                table.name(),
+                column,
+                declaredType,
+                autoincrement,
+                primaryKeyColumns));
       }
     }
     return MetadataRows.of(connection, COLUMN_COLUMNS, rows);
@@ -1047,8 +1060,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     List<List<Object>> rows = new ArrayList<>();
     for (PrimaryKeyColumn column : keyColumns) {
       rows.add(
-          Arrays.asList(
-              null, null, table, column.name(), column.sequence(), primaryKey.name()));
+          Arrays.asList(catalog, null, table, column.name(), column.sequence(), primaryKey.name()));
     }
     return MetadataRows.of(connection, PRIMARY_KEY_COLUMNS, rows);
   }
@@ -1549,6 +1561,8 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   private record TableRef(String name, @Nullable String sql) {}
 
+  private record CatalogTable(String catalog, String name) {}
+
   private record ForeignKeyRef(
       long id,
       int sequence,
@@ -1828,6 +1842,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   }
 
   private static List<Object> columnRow(
+      String catalog,
       String table,
       PragmaColumn column,
       @Nullable String declaredType,
@@ -1884,7 +1899,7 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     boolean generated = column.hidden() == 2 || column.hidden() == 3;
     boolean isAutoincrement = autoincrement && primaryKeyColumns == 1 && column.primaryKey() == 1;
     return Arrays.asList(
-        null,
+        catalog,
         null,
         table,
         column.name(),
