@@ -139,13 +139,17 @@ public final class JDBC4Connection implements Connection {
 
   @Override
   public void setReadOnly(boolean readOnly) throws SQLException {
-    // TODO
+    try (Statement statement = createStatement()) {
+      statement.execute("PRAGMA query_only = " + (readOnly ? 1 : 0));
+    }
   }
 
   @Override
   public boolean isReadOnly() throws SQLException {
-    // TODO
-    return false;
+    try (Statement statement = createStatement();
+        ResultSet rs = statement.executeQuery("PRAGMA query_only")) {
+      return rs.next() && rs.getInt(1) == 1;
+    }
   }
 
   @Override

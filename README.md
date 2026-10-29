@@ -260,6 +260,8 @@ provide.
   semicolons, and comments may follow the first statement.
 - The engine folds every identifier to lower case, including quoted names. Metadata reports the
   canonical stored name, so a table created as `MyTable` appears as `mytable`.
+- `Connection.setReadOnly` sets `PRAGMA query_only` on that connection. It is a hint against this
+  connection, not physical isolation: another connection can still write the file.
 - Encryption entry points exist in the core but are untested.
 - Metadata is best effort. Column types and precision come from the declared type in
   `sqlite_schema.sql`; expressions fall back to the value's storage class.

@@ -446,4 +446,29 @@ class EmbeddedTursoTest {
         }
     }
 
+    @Test
+    void setReadOnlyRejectsWritesAndRestoresThemOnRequest(@TempDir Path dir) throws Exception {
+        try (Connection c = connect(db(dir, "readonly")); Statement s = c.createStatement()) {
+            s.executeUpdate("CREATE TABLE r (v TEXT)");
+            s.executeUpdate("INSERT INTO r (v) VALUES ('before')");
+
+            assertThat(c.isReadOnly()).isFalse();
+            c.setReadOnly(true);
+            assertThat(c.isReadOnly()).isTrue();
+            assertThat(c.getMetaData().isReadOnly()).isTrue();
+
+            assertThatThrownBy(() -> s.executeUpdate("INSERT INTO r (v) VALUES ('blocked')"))
+                    .isInstanceOf(SQLException.class);
+            try (ResultSet rs = s.executeQuery("SELECT count(*) FROM r")) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getLong(1)).isEqualTo(1L);
+            }
+
+            c.setReadOnly(false);
+            assertThat(c.isReadOnly()).isFalse();
+            assertThat(c.getMetaData().isReadOnly()).isFalse();
+            assertThat(s.executeUpdate("INSERT INTO r (v) VALUES ('after')")).isEqualTo(1);
+        }
+    }
+
 }
