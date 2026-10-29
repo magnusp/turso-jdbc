@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import java.sql.SQLFeatureNotSupportedException;
 
 /** Database metadata behaviour covered directly rather than only through the reference suite. */
 class DatabaseMetaDataTest {
@@ -333,5 +334,92 @@ class DatabaseMetaDataTest {
           .isInstanceOf(SQLException.class)
           .hasMessageContaining("FOREIGN KEY constraint failed");
     }
+  }
+
+  @Test
+  void getFunctionsReturnsOneRowPerName(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "functions")) {
+      DatabaseMetaData metadata = connection.getMetaData();
+
+      try (ResultSet abs = metadata.getFunctions(null, null, "abs")) {
+        assertThat(abs.next()).isTrue();
+        assertThat(abs.getString("FUNCTION_NAME")).isEqualTo("abs");
+        assertThat(abs.getString("SPECIFIC_NAME")).isEqualTo("abs");
+        assertThat(abs.getInt("FUNCTION_TYPE")).isEqualTo(DatabaseMetaData.functionNoTable);
+        assertThat(abs.getString("FUNCTION_CAT")).isNull();
+        assertThat(abs.getString("FUNCTION_SCHEM")).isNull();
+        assertThat(abs.getString("REMARKS")).isNull();
+        assertThat(abs.next()).isFalse();
+      }
+
+      try (ResultSet count = metadata.getFunctions(null, null, "count")) {
+        assertThat(count.next()).isTrue();
+        assertThat(count.getString("FUNCTION_NAME")).isEqualTo("count");
+        assertThat(count.next()).isFalse();
+      }
+
+      try (ResultSet max = metadata.getFunctions(null, null, "max")) {
+        assertThat(max.next()).isTrue();
+        assertThat(max.getString("FUNCTION_NAME")).isEqualTo("max");
+        assertThat(max.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void getFunctionsFiltersByNamePattern(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "function-pattern")) {
+      DatabaseMetaData metadata = connection.getMetaData();
+
+      List<String> all = functionNames(metadata.getFunctions(null, null, "%"));
+      assertThat(all).contains("abs", "count", "lower");
+
+      List<String> cNames = functionNames(metadata.getFunctions(null, null, "c%"));
+      assertThat(cNames).contains("ceil", "count").allMatch(name -> name.startsWith("c"));
+      assertThat(cNames).isSubsetOf(all);
+    }
+  }
+
+  @Test
+  void getFunctionColumnsNamesTheEngineGap(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "function-columns")) {
+      assertThatThrownBy(
+              () -> connection.getMetaData().getFunctionColumns(null, null, "abs", "%"))
+          .isInstanceOf(SQLFeatureNotSupportedException.class)
+          .hasMessageContaining("engine");
+    }
+  }
+
+  @Test
+  void curatedFunctionListsExistInEngine(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "curated-functions");
+        Statement statement = connection.createStatement();
+        ResultSet names = statement.executeQuery("SELECT name FROM pragma_function_list")) {
+      List<String> engineNames = new ArrayList<>();
+      while (names.next()) {
+        engineNames.add(names.getString(1));
+      }
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      for (String list :
+          List.of(
+              metadata.getNumericFunctions(),
+              metadata.getStringFunctions(),
+              metadata.getSystemFunctions(),
+              metadata.getTimeDateFunctions())) {
+        assertThat(list).isNotEmpty();
+        assertThat(engineNames).containsAll(List.of(list.split(",")));
+      }
+    }
+  }
+
+  private static List<String> functionNames(ResultSet rs) throws SQLException {
+    List<String> names = new ArrayList<>();
+    try (rs) {
+      while (rs.next()) {
+        names.add(rs.getString("FUNCTION_NAME"));
+      }
+    }
+    return names;
   }
 }

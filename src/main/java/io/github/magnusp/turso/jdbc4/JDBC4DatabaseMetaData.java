@@ -89,6 +89,26 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
           "PK_NAME",
           "DEFERRABILITY");
 
+  private static final List<String> NUMERIC_FUNCTIONS =
+      List.of(
+          "abs", "acos", "asin", "atan", "atan2", "ceil", "ceiling", "cos", "degrees", "exp",
+          "floor", "ln", "log", "log10", "mod", "pi", "power", "radians", "random", "round",
+          "sign", "sin", "sqrt", "tan", "trunc");
+
+  private static final List<String> STRING_FUNCTIONS =
+      List.of(
+          "char", "concat", "concat_ws", "instr", "length", "lower", "lpad", "ltrim", "repeat",
+          "replace", "rpad", "rtrim", "soundex", "string_reverse", "substr", "substring", "trim",
+          "unicode", "upper");
+
+  private static final List<String> SYSTEM_FUNCTIONS =
+      List.of(
+          "changes", "coalesce", "ifnull", "iif", "last_insert_rowid", "nullif", "sqlite_version",
+          "total_changes", "turso_version", "typeof");
+
+  private static final List<String> TIME_DATE_FUNCTIONS =
+      List.of("date", "datetime", "julianday", "strftime", "time", "timediff", "unixepoch");
+
   private static final int DEFAULT_COLUMN_SIZE = 2000000000;
 
   private final JDBC4Connection connection;
@@ -284,26 +304,22 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   @Override
   public String getNumericFunctions() {
-    // TODO
-    return "";
+    return String.join(",", NUMERIC_FUNCTIONS);
   }
 
   @Override
   public String getStringFunctions() {
-    // TOOD
-    return "";
+    return String.join(",", STRING_FUNCTIONS);
   }
 
   @Override
   public String getSystemFunctions() {
-    // TODO
-    return "";
+    return String.join(",", SYSTEM_FUNCTIONS);
   }
 
   @Override
   public String getTimeDateFunctions() {
-    // TODO
-    return "";
+    return String.join(",", TIME_DATE_FUNCTIONS);
   }
 
   @Override
@@ -1432,7 +1448,22 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   @SkipNullableCheck
   public ResultSet getFunctions(String catalog, String schemaPattern, String functionNamePattern)
       throws SQLException {
-    throw new SQLFeatureNotSupportedException();
+    StringBuilder sql =
+        new StringBuilder(
+            "SELECT NULL AS FUNCTION_CAT, NULL AS FUNCTION_SCHEM, name AS FUNCTION_NAME, "
+                + "NULL AS REMARKS, "
+                + DatabaseMetaData.functionNoTable
+                + " AS FUNCTION_TYPE, name AS SPECIFIC_NAME FROM pragma_function_list");
+    if (functionNamePattern != null) {
+      sql.append(" WHERE name LIKE ? ESCAPE '\\'");
+    }
+    sql.append(" GROUP BY name ORDER BY FUNCTION_NAME");
+
+    PreparedStatement statement = connection.prepareStatement(sql.toString());
+    if (functionNamePattern != null) {
+      statement.setString(1, functionNamePattern);
+    }
+    return metadataQuery(statement);
   }
 
   @Override
@@ -1440,7 +1471,9 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getFunctionColumns(
       String catalog, String schemaPattern, String functionNamePattern, String columnNamePattern)
       throws SQLException {
-    throw new SQLFeatureNotSupportedException("Not yet implemented by SQLite JDBC driver");
+    throw new SQLFeatureNotSupportedException(
+        "getFunctionColumns is unsupported: the turso engine does not expose function "
+            + "argument or return types in pragma_function_list");
   }
 
   @Override
