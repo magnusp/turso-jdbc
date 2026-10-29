@@ -1180,12 +1180,16 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     String sql =
         "SELECT NULL AS TABLE_CAT, NULL AS TABLE_SCHEM, m.name AS TABLE_NAME, "
             + "CASE WHEN il.\"unique\" = 1 THEN 0 ELSE 1 END AS NON_UNIQUE, "
-            + "NULL AS INDEX_QUALIFIER, il.name AS INDEX_NAME, 2 AS TYPE, "
+            + "NULL AS INDEX_QUALIFIER, il.name AS INDEX_NAME, 3 AS TYPE, "
             + "ii.seqno + 1 AS ORDINAL_POSITION, ii.name AS COLUMN_NAME, "
-            + "'A' AS ASC_OR_DESC, 0 AS CARDINALITY, 0 AS PAGES, NULL AS FILTER_CONDITION "
+            + "CASE WHEN ii.\"desc\" = 1 THEN 'D' ELSE 'A' END AS ASC_OR_DESC, "
+            + "0 AS CARDINALITY, 0 AS PAGES, "
+            + "CASE WHEN il.partial = 1 "
+            + "THEN trim(substr(ix.sql, instr(upper(ix.sql), ' WHERE ') + 7)) END AS FILTER_CONDITION "
             + "FROM sqlite_schema m JOIN pragma_index_list(m.name) il "
-            + "JOIN pragma_index_info(il.name) ii "
-            + "WHERE m.name = ? AND m.type = 'table'"
+            + "JOIN pragma_index_xinfo(il.name) ii "
+            + "JOIN sqlite_schema ix ON ix.type = 'index' AND ix.name = il.name "
+            + "WHERE m.name = ? AND m.type = 'table' AND ii.\"key\" = 1"
             + (unique ? " AND il.\"unique\" = 1" : "")
             + " ORDER BY il.name, ii.seqno";
     PreparedStatement statement = connection.prepareStatement(sql);
