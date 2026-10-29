@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoPropertiesHolder;
@@ -894,13 +895,12 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
     String columnPattern = columnNamePattern == null ? "%" : columnNamePattern;
     Map<String, String> createSql = loadCreateSql();
-    List<String> tables = new ArrayList<>();
+    Set<String> tables = new TreeSet<>();
     try (ResultSet tableRows = getTables(null, null, tableNamePattern, null)) {
       while (tableRows.next()) {
         tables.add(tableRows.getString("TABLE_NAME"));
       }
     }
-    tables.sort(Comparator.naturalOrder());
 
     List<List<Object>> rows = new ArrayList<>();
     for (String table : tables) {

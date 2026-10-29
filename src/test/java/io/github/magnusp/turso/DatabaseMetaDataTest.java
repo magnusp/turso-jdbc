@@ -556,6 +556,22 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void getColumnsReportsShadowedNameOnce(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "shadow");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (a TEXT)");
+      statement.executeUpdate("CREATE TEMP TABLE t (b INTEGER)");
+
+      try (ResultSet columns = connection.getMetaData().getColumns(null, null, "t", "%")) {
+        assertThat(columns.next()).isTrue();
+        assertThat(columns.getString("COLUMN_NAME")).isEqualTo("b");
+        assertThat(columns.getInt("DATA_TYPE")).isEqualTo(Types.INTEGER);
+        assertThat(columns.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
   void getTablesSkipsTempIndexesAndTriggers(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "temp-objects");
         Statement statement = connection.createStatement()) {
