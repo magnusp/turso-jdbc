@@ -388,6 +388,9 @@ public final class JDBC4ResultSet implements ResultSet, ResultSetMetaData {
     final Object result = resultSet.get(columnIndex);
     wasNull = result == null;
     if (result instanceof Long value) {
+      if (getColumnType(columnIndex) == Types.BIT) {
+        return JdbcValueConversions.toBoolean(value);
+      }
       if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
         return Integer.valueOf(value.intValue());
       }

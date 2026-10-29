@@ -211,6 +211,39 @@ class EmbeddedTursoTest {
     }
 
     @Test
+    void bitColumnReadsAsBoolean(@TempDir Path dir) throws Exception {
+        try (Connection c = connect(db(dir, "bit"))) {
+            try (Statement s = c.createStatement()) {
+                s.executeUpdate("CREATE TABLE flags (id INTEGER, b BIT)");
+            }
+            try (PreparedStatement ps = c.prepareStatement("INSERT INTO flags (id, b) VALUES (?, ?)")) {
+                ps.setInt(1, 1);
+                ps.setBoolean(2, true);
+                assertThat(ps.executeUpdate()).isEqualTo(1);
+                ps.setInt(1, 2);
+                ps.setBoolean(2, false);
+                assertThat(ps.executeUpdate()).isEqualTo(1);
+                ps.setInt(1, 3);
+                ps.setNull(2, Types.BIT);
+                assertThat(ps.executeUpdate()).isEqualTo(1);
+            }
+            try (Statement s = c.createStatement();
+                    ResultSet rs = s.executeQuery("SELECT b FROM flags ORDER BY id")) {
+                ResultSetMetaData metaData = rs.getMetaData();
+                assertThat(metaData.getColumnType(1)).isEqualTo(Types.BIT);
+                assertThat(metaData.getColumnClassName(1)).isEqualTo(Boolean.class.getName());
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getObject(1)).isEqualTo(Boolean.TRUE);
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getObject(1)).isEqualTo(Boolean.FALSE);
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getObject(1)).isNull();
+                assertThat(rs.wasNull()).isTrue();
+            }
+        }
+    }
+
+    @Test
     void resultSetMetaDataWithResolvedDeclaredTypes(@TempDir Path dir) throws Exception {
         try (Connection c = connect(db(dir, "md-resolved"))) {
             createMetadataTable(c, "items_resolved");
