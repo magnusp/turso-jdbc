@@ -348,7 +348,7 @@ class DatabaseMetaDataTest {
   }
 
   @Test
-  void connectionCatalogRoundTripsAndRejectsUnknownNames(@TempDir Path dir) throws Exception {
+  void connectionCatalogRoundTripsAndRejectsUnknownAndNullNames(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "set-catalog")) {
       assertThat(connection.getCatalog()).isEqualTo("main");
 
@@ -358,6 +358,11 @@ class DatabaseMetaDataTest {
       assertThatThrownBy(() -> connection.setCatalog("unknown"))
           .isInstanceOf(SQLException.class)
           .hasMessageContaining("unknown");
+      assertThat(connection.getCatalog()).isEqualTo("temp");
+
+      assertThatThrownBy(() -> connection.setCatalog(null))
+          .isInstanceOf(SQLException.class)
+          .hasMessageContaining("null");
       assertThat(connection.getCatalog()).isEqualTo("temp");
     }
   }
