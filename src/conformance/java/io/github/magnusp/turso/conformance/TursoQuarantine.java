@@ -13,16 +13,11 @@ import org.junit.platform.launcher.PostDiscoveryFilter;
  *
  * <p>Entries cover the selected reference-test methods whose expectations the embedded engine
  * cannot meet today: folded identifier case (#23), two experimental schema features (#19), the
- * deliberate stored-procedure contract (#21), BIT read as Boolean (#20), and the catalog model\n * (#36). Every entry names a
- * method, a reason, the difference from the reference driver, and an issue, and {@link
- * TursoQuarantineTest} rejects a blank or stale entry. Class-level entries are not supported. The
- * filter is inactive in the reference probe, where the reference driver is the subject.
-||||||| 2340641
- * cannot meet today: folded identifier case (#23), two experimental schema features (#19), and the
- * deliberate stored-procedure contract (#21). Every entry names a method, a reason, the difference
- * from the reference driver, and an issue, and {@link TursoQuarantineTest} rejects a blank or
- * stale entry. Class-level entries are not supported. The filter is inactive in the reference
- * probe, where the reference driver is the subject.
+ * deliberate stored-procedure contract (#21), BIT read as Boolean (#20), and the catalog model
+ * (#36). Every entry names a method, a reason, the difference from the reference driver, and an
+ * issue, and {@link TursoQuarantineTest} rejects a blank or stale entry. Class-level entries are
+ * not supported. The filter is inactive in the reference probe, where the reference driver is the
+ * subject.
  */
 public final class TursoQuarantine implements PostDiscoveryFilter {
 
