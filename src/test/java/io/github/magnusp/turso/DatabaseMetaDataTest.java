@@ -426,4 +426,124 @@ class DatabaseMetaDataTest {
           .hasMessageContaining("FOREIGN KEY constraint failed");
     }
   }
+
+  @Test
+  void bestRowIdentifierReturnsIntegerPrimaryKey(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "best-row-rowid-alias");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE alias (id INTEGER PRIMARY KEY, name TEXT)");
+
+      try (ResultSet rows =
+          connection.getMetaData().getBestRowIdentifier(null, null, "alias", 0, true)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("id");
+        assertThat(rows.getInt("DATA_TYPE")).isEqualTo(Types.INTEGER);
+        assertThat(rows.getString("TYPE_NAME")).isEqualTo("INTEGER");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowNotPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void bestRowIdentifierFollowsCompositePrimaryKeyOrder(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "best-row-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE composite (a TEXT NOT NULL, b TEXT NOT NULL, PRIMARY KEY (b, a))");
+
+      List<String> names = new ArrayList<>();
+      try (ResultSet rows =
+          connection.getMetaData().getBestRowIdentifier(null, null, "composite", 0, true)) {
+        while (rows.next()) {
+          names.add(rows.getString("COLUMN_NAME"));
+        }
+      }
+      assertThat(names).containsExactly("b", "a");
+    }
+  }
+
+  @Test
+  void bestRowIdentifierExcludesNullableKeyColumns(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "best-row-nullable");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE nullable_key (a TEXT PRIMARY KEY, b TEXT)");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet rows = metadata.getBestRowIdentifier(null, null, "nullable_key", 0, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("rowid");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+      try (ResultSet rows = metadata.getBestRowIdentifier(null, null, "nullable_key", 0, true)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("a");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowNotPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void bestRowIdentifierDiscardsCompositeKeyWithNullableColumn(@TempDir Path dir)
+      throws Exception {
+    try (Connection connection = connect(dir, "best-row-partial-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE partial_key (a INTEGER NOT NULL, b TEXT, PRIMARY KEY (a, b))");
+
+      try (ResultSet rows =
+          connection.getMetaData().getBestRowIdentifier(null, null, "partial_key", 0, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("rowid");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void bestRowIdentifierUsesUniqueNotNullIndex(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "best-row-unique");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE coded (code TEXT NOT NULL, note TEXT)");
+      statement.executeUpdate("CREATE UNIQUE INDEX coded_code ON coded (code)");
+      statement.executeUpdate("CREATE TABLE partial_coded (code TEXT NOT NULL, note TEXT)");
+      statement.executeUpdate(
+          "CREATE UNIQUE INDEX partial_coded_code ON partial_coded (code) WHERE note IS NOT NULL");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet rows = metadata.getBestRowIdentifier(null, null, "coded", 0, true)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("code");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowNotPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+      try (ResultSet rows =
+          metadata.getBestRowIdentifier(null, null, "partial_coded", 0, true)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("rowid");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void bestRowIdentifierFallsBackToRowid(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "best-row-rowid");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE plain (a TEXT, b TEXT)");
+
+      try (ResultSet rows =
+          connection.getMetaData().getBestRowIdentifier(null, null, "plain", 0, true)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("rowid");
+        assertThat(rows.getInt("DATA_TYPE")).isEqualTo(Types.INTEGER);
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
 }
