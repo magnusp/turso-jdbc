@@ -255,6 +255,9 @@ provide.
   affected-row count. `Statement.execute` and `executeQuery` execute one statement.
 - The engine folds every identifier to lower case, including quoted names. Metadata reports the
   canonical stored name, so a table created as `MyTable` appears as `mytable`.
+- A temp table shadows a main table of the same name for column metadata. `getColumns` reports
+  the temp table's columns once. The engine rejects a schema argument on the table-valued
+  pragmas, so the main table's columns have no supported path yet.
 - Encryption entry points exist in the core but are untested.
 - Metadata is best effort. Column types and precision come from the declared type in
   `sqlite_schema.sql`; expressions fall back to the value's storage class.
