@@ -1142,6 +1142,10 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     if (foreignTable == null) {
       return getImportedKeys(parentCatalog, parentSchema, parentTable);
     }
+    if ((parentCatalog != null && !parentCatalog.isEmpty())
+        || (parentSchema != null && !parentSchema.isEmpty())) {
+      return emptyForeignKeys();
+    }
     List<List<Object>> rows = new ArrayList<>();
     for (List<Object> row : importedKeyRows(foreignCatalog, foreignSchema, foreignTable)) {
       if (((String) row.get(2)).equalsIgnoreCase(parentTable)) {
