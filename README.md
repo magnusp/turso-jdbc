@@ -141,6 +141,20 @@ developing. `TursoConformanceReport` writes
 quarantined counts (`total = executed + quarantined`). Failsafe reports are under
 `target/failsafe-reports`.
 
+The `quarantine-ratchet` CI job runs the suite once with the filter off and then
+`tools/check-quarantine`, which fails and names the entry to remove when a quarantined method
+passes, aborts, or no longer runs. Reproduce the gate locally with:
+
+```sh
+mvn -B verify -Dconformance.quarantine.enabled=false -Dmaven.test.failure.ignore=true
+tools/check-quarantine
+```
+
+The run writes `target/quarantine-ratchet.tsv`, one row per entry. `tools/check-quarantine` prints a
+per-status count summary when every row is `failed`, and `tools/check-quarantine --self-test`
+exercises the gate on temporary fixtures. All 16 entries still fail as expected (12 for #23, 4 for
+#19 and #21), so the job is green today.
+
 Surefire and Failsafe both pass `--enable-native-access=ALL-UNNAMED`. Use the same flag when
 running the conformance tests from an IDE.
 
