@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -71,6 +72,17 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
 
   private static final List<String> PRIMARY_KEY_COLUMNS =
       List.of("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME");
+
+  private static final List<String> BEST_ROW_COLUMNS =
+      List.of(
+          "SCOPE",
+          "COLUMN_NAME",
+          "DATA_TYPE",
+          "TYPE_NAME",
+          "COLUMN_SIZE",
+          "BUFFER_LENGTH",
+          "DECIMAL_DIGITS",
+          "PSEUDO_COLUMN");
 
   private static final List<String> FOREIGN_KEY_COLUMNS =
       List.of(
@@ -132,8 +144,6 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   @Nullable private PreparedStatement getProcedures = null;
 
   @Nullable private PreparedStatement getAttributes = null;
-
-  @Nullable private PreparedStatement getBestRowIdentifier = null;
 
   @Nullable private PreparedStatement getVersionColumns = null;
 
@@ -971,16 +981,26 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   public ResultSet getBestRowIdentifier(
       String catalog, String schema, String table, int scope, boolean nullable)
       throws SQLException {
-    if (getBestRowIdentifier == null || getBestRowIdentifier.isClosed()) {
-      connection.checkOpen();
-      getBestRowIdentifier =
-          connection.prepareStatement(
-              "select null as SCOPE, null as COLUMN_NAME, "
-                  + "null as DATA_TYPE, null as TYPE_NAME, null as COLUMN_SIZE, "
-                  + "null as BUFFER_LENGTH, null as DECIMAL_DIGITS, null as PSEUDO_COLUMN limit 0;");
+    TableRef source = table == null ? null : findTable(table);
+    if (source == null) {
+      return MetadataRows.of(connection, BEST_ROW_COLUMNS, List.of());
     }
 
-    return metadataQuery(getBestRowIdentifier);
+    List<PragmaColumn> columns = readTableInfo(source.name());
+    List<PragmaColumn> key = primaryKeyForBestRow(columns, nullable);
+    if (key.isEmpty()) {
+      key = uniqueNotNullIndexColumns(source.name(), columns);
+    }
+
+    List<List<Object>> rows = new ArrayList<>();
+    if (key.isEmpty()) {
+      rows.add(bestRowColumn("rowid", "INTEGER", DatabaseMetaData.bestRowPseudo));
+    } else {
+      for (PragmaColumn column : key) {
+        rows.add(bestRowColumn(column.name(), column.type(), DatabaseMetaData.bestRowNotPseudo));
+      }
+    }
+    return MetadataRows.of(connection, BEST_ROW_COLUMNS, rows);
   }
 
   @Override
@@ -1711,6 +1731,65 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
       }
     }
     return name;
+  }
+
+  private static List<PragmaColumn> primaryKeyForBestRow(
+      List<PragmaColumn> columns, boolean nullable) {
+    List<PragmaColumn> key =
+        columns.stream()
+            .filter(column -> column.primaryKey() > 0)
+            .sorted(Comparator.comparingInt(PragmaColumn::primaryKey))
+            .toList();
+    if (key.size() == 1 && "INTEGER".equalsIgnoreCase(key.get(0).type())) {
+      return key;
+    }
+    if (nullable || key.stream().allMatch(column -> column.notNull() == 1)) {
+      return key;
+    }
+    return List.of();
+  }
+
+  private List<PragmaColumn> uniqueNotNullIndexColumns(String table, List<PragmaColumn> columns)
+      throws SQLException {
+    Map<Long, PragmaColumn> byCid = new HashMap<>();
+    for (PragmaColumn column : columns) {
+      byCid.put(column.cid(), column);
+    }
+    String sql =
+        "SELECT il.name AS index_name, ii.cid AS cid FROM pragma_index_list(?) il "
+            + "JOIN pragma_index_xinfo(il.name) ii "
+            + "WHERE il.\"unique\" = 1 AND il.partial = 0 AND ii.key = 1 "
+            + "ORDER BY il.seq, ii.seqno";
+    Map<String, List<PragmaColumn>> indexes = new LinkedHashMap<>();
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      statement.setString(1, table);
+      try (ResultSet rows = statement.executeQuery()) {
+        while (rows.next()) {
+          indexes
+              .computeIfAbsent(rows.getString("index_name"), name -> new ArrayList<>())
+              .add(byCid.get(rows.getLong("cid")));
+        }
+      }
+    }
+    for (List<PragmaColumn> index : indexes.values()) {
+      if (index.stream().allMatch(column -> column != null && column.notNull() == 1)) {
+        return index;
+      }
+    }
+    return List.of();
+  }
+
+  private static List<Object> bestRowColumn(
+      String name, @Nullable String declaredType, int pseudoColumn) {
+    return Arrays.asList(
+        DatabaseMetaData.bestRowSession,
+        name,
+        TursoTypeMapping.columnType(declaredType),
+        TursoTypeMapping.typeName(declaredType),
+        TursoTypeMapping.precision(declaredType),
+        null,
+        TursoTypeMapping.scale(declaredType),
+        pseudoColumn);
   }
 
   private static List<Object> columnRow(
