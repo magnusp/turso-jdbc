@@ -350,6 +350,24 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void bestRowIdentifierDiscardsCompositeKeyWithNullableColumn(@TempDir Path dir)
+      throws Exception {
+    try (Connection connection = connect(dir, "best-row-partial-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate(
+          "CREATE TABLE partial_key (a INTEGER NOT NULL, b TEXT, PRIMARY KEY (a, b))");
+
+      try (ResultSet rows =
+          connection.getMetaData().getBestRowIdentifier(null, null, "partial_key", 0, false)) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getString("COLUMN_NAME")).isEqualTo("rowid");
+        assertThat(rows.getInt("PSEUDO_COLUMN")).isEqualTo(DatabaseMetaData.bestRowPseudo);
+        assertThat(rows.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
   void bestRowIdentifierUsesUniqueNotNullIndex(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "best-row-unique");
         Statement statement = connection.createStatement()) {

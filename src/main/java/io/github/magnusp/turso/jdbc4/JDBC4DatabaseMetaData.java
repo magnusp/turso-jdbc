@@ -1706,7 +1706,10 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     if (key.size() == 1 && "INTEGER".equalsIgnoreCase(key.get(0).type())) {
       return key;
     }
-    return nullable ? key : key.stream().filter(column -> column.notNull() == 1).toList();
+    if (nullable || key.stream().allMatch(column -> column.notNull() == 1)) {
+      return key;
+    }
+    return List.of();
   }
 
   private List<PragmaColumn> uniqueNotNullIndexColumns(String table, List<PragmaColumn> columns)
