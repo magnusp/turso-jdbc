@@ -1,6 +1,7 @@
 package io.github.magnusp.turso;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -305,6 +306,32 @@ class DatabaseMetaDataTest {
         assertThat(columnNames(exported)).hasSize(14);
         assertThat(exported.next()).isFalse();
       }
+    }
+  }
+
+  @Test
+  void supportsIntegrityEnhancementFacility(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "integrity")) {
+      assertThat(connection.getMetaData().supportsIntegrityEnhancementFacility()).isTrue();
+    }
+  }
+
+  @Test
+  void orphanRowIsAcceptedByDefaultAndRejectedWithForeignKeysOn(@TempDir Path dir)
+      throws Exception {
+    try (Connection connection = connect(dir, "orphan-default");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE c (pid INTEGER REFERENCES p(id))");
+      assertThat(statement.executeUpdate("INSERT INTO c VALUES (99)")).isEqualTo(1);
+    }
+    try (Connection connection =
+            DriverManager.getConnection(
+                "jdbc:turso:" + dir.resolve("orphan-default.db") + "?foreign_keys=on");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO c VALUES (98)"))
+          .isInstanceOf(SQLException.class)
+          .hasMessageContaining("FOREIGN KEY constraint failed");
     }
   }
 }

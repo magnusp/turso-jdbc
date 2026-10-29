@@ -65,6 +65,8 @@ Connection properties go in the URL query string or in the `Properties` passed t
 `DriverManager.getConnection`. A query string value wins over the same key in `Properties`.
 
 - `foreign_keys`: `on` or `off`. Default `off`, the engine default. `on` enforces foreign keys.
+  `DatabaseMetaData.supportsIntegrityEnhancementFacility()` returns `true` because the engine
+  supports foreign keys. The default stays off, so orphan rows are accepted until `foreign_keys=on`.
 - `query_only`: `on` or `off`. Default `off`. `on` rejects writes on this connection.
 - `busy_timeout`: milliseconds to wait on a locked database. Default `0`.
 
@@ -91,10 +93,10 @@ The jar is self-contained for Linux x86_64. It contains the stripped `libturso_s
 `io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so` and extracts it to a temporary
 file on first use.
 
-`mvn test` runs 75 tests with 0 failures and 0 skips:
+`mvn test` runs 77 tests with 0 failures and 0 skips:
 
 - 17 embedded Turso fit tests (`io.github.magnusp.turso.EmbeddedTursoTest`)
-- 11 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
+- 13 metadata tests (`io.github.magnusp.turso.DatabaseMetaDataTest`)
 - 12 multi-statement tests (`io.github.magnusp.turso.MultiStatementTest`)
 - 8 parameter metadata tests (`io.github.magnusp.turso.ParameterMetaDataTest`)
 - 4 experimental feature tests (`io.github.magnusp.turso.ExperimentalFeatureTest`)
