@@ -275,6 +275,182 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void crossReferenceMatchesImportedKeysForSingleColumnChild(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-single");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, null, "xp", null, null, "xc")) {
+        assertThat(
+                columnValues(
+                    crossReference,
+                    "PKTABLE_NAME",
+                    "PKCOLUMN_NAME",
+                    "FKTABLE_NAME",
+                    "FKCOLUMN_NAME",
+                    "KEY_SEQ"))
+            .containsExactly(List.of("xp", "id", "xc", "pid", "1"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceMatchesImportedKeysForCompositeChild(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-composite");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE p2 (a INTEGER, b TEXT, PRIMARY KEY (a, b))");
+      statement.executeUpdate(
+          "CREATE TABLE c3 (x INTEGER, y TEXT, FOREIGN KEY (x, y) REFERENCES p2)");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, null, "p2", null, null, "c3")) {
+        assertThat(columnValues(crossReference, "PKCOLUMN_NAME", "KEY_SEQ", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("a", "1", "x"), List.of("b", "2", "y"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceReturnsOnlyRequestedParent(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-two-parents");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE mp1 (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE mp2 (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate(
+          "CREATE TABLE mchild (a INTEGER, b INTEGER, c INTEGER,"
+              + " CONSTRAINT f1 FOREIGN KEY (a) REFERENCES mp1 (id),"
+              + " CONSTRAINT f2 FOREIGN KEY (b) REFERENCES mp2 (id),"
+              + " FOREIGN KEY (c) REFERENCES mp1 (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, null, "mp2", null, null, "mchild")) {
+        assertThat(
+                columnValues(
+                    crossReference, "PKTABLE_NAME", "FKCOLUMN_NAME", "FK_NAME"))
+            .containsExactly(List.of("mp2", "b", "f2"));
+      }
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, null, "mp1", null, null, "mchild")) {
+        assertThat(columnValues(crossReference, "FKCOLUMN_NAME", "FK_NAME"))
+            .containsExactly(List.of("c", ""), List.of("a", "f1"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceIncludesUniqueTargetWithoutPrimaryKey(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-unique");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE u (code TEXT UNIQUE)");
+      statement.executeUpdate("CREATE TABLE c4 (code TEXT REFERENCES u (code))");
+
+      try (ResultSet crossReference =
+          connection.getMetaData().getCrossReference(null, null, "u", null, null, "c4")) {
+        assertThat(columnValues(crossReference, "PKCOLUMN_NAME", "PKTABLE_NAME", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("code", "u", "code"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceWithBothTablesNullIsEmpty(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-null")) {
+      try (ResultSet crossReference =
+          connection.getMetaData().getCrossReference(null, null, null, null, null, null)) {
+        assertThat(crossReference.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceAcceptsMainParentCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-main-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference("main", null, "xp", null, null, "xc")) {
+        assertThat(columnValues(crossReference, "PKTABLE_NAME", "FKTABLE_NAME", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("xp", "xc", "pid"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceAcceptsTempParentCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-temp-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference("TEMP", null, "xp", null, null, "xc")) {
+        assertThat(columnValues(crossReference, "PKTABLE_NAME", "FKTABLE_NAME", "FKCOLUMN_NAME"))
+            .containsExactly(List.of("xp", "xc", "pid"));
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceRejectsUnknownParentCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-bogus-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      try (ResultSet crossReference =
+          connection
+              .getMetaData()
+              .getCrossReference("ca'talog", null, "xp", null, null, "xc")) {
+        assertThat(crossReference.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceRejectsNonEmptySchema(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-schema");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      DatabaseMetaData metadata = connection.getMetaData();
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, "main", "xp", null, null, "xc")) {
+        assertThat(crossReference.next()).isFalse();
+      }
+      try (ResultSet crossReference =
+          metadata.getCrossReference(null, null, "xp", null, "main", "xc")) {
+        assertThat(crossReference.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
+  void crossReferenceRejectsUnknownForeignCatalog(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "cross-foreign-catalog");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE xp (id INTEGER PRIMARY KEY)");
+      statement.executeUpdate("CREATE TABLE xc (pid INTEGER REFERENCES xp (id))");
+
+      try (ResultSet crossReference =
+          connection
+              .getMetaData()
+              .getCrossReference(null, null, "xp", "ca'talog", null, "xc")) {
+        assertThat(crossReference.next()).isFalse();
+      }
+    }
+  }
+
+  @Test
   void getTablesOmitsImplicitIndexes(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "implicit-indexes");
         Statement statement = connection.createStatement()) {
