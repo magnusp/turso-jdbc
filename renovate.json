@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>magnusp/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Runner images are pinned for the glibc 2.35 compatibility baseline; update them manually",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["github-runner"],
+      "enabled": false
+    },
+    {
+      "description": "Group all GitHub Actions updates into one PR",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Group Maven build plugins and extensions, which are upgraded together",
+      "matchManagers": ["maven"],
+      "matchDepTypes": ["build"],
+      "groupName": "Maven build plugins"
+    },
+    {
+      "description": "Group test-scoped Maven libraries (JUnit, AssertJ)",
+      "matchManagers": ["maven"],
+      "matchDepTypes": ["test"],
+      "groupName": "Maven test libraries"
+    }
+  ]
+}

@@ -79,13 +79,13 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version>
+                <version>3.16.0</version>
                 <configuration>
                     <release>25</release>
                 </configuration>
                 <executions>
                     <execution>
-                        <!-- The pinned xerial tests use deprecated JDBC API on purpose. -->
+                        <!-- The exported reference tests use deprecated JDBC API on purpose. -->
                         <id>default-testCompile</id>
                         <configuration>
                             <compilerArgs combine.children="append">
@@ -175,7 +175,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.6.0</version>
+                <version>3.6.1</version>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
                     <excludes>
@@ -188,7 +188,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.6.0</version>
+                <version>3.6.1</version>
                 <executions>
                     <execution>
                         <id>conformance</id>
@@ -200,7 +200,7 @@
                 </executions>
                 <configuration>
                     <argLine>--enable-native-access=ALL-UNNAMED</argLine>
-                    <!-- The manifest decides which xerial test classes are copied into
+                    <!-- The manifest decides which reference test classes are copied into
                          generated-test-sources, so the org.sqlite package pattern follows
                          the manifest without a second class list. The conformance package
                          holds the harness tests. -->
@@ -219,8 +219,9 @@
 
     <profiles>
         <!--
-            Parity baseline: run the same pinned xerial test tree against
-            org.xerial:sqlite-jdbc 3.53.4.0 instead of the Turso driver.
+            Reference probe: run the same exported test tree against
+            org.xerial:sqlite-jdbc 3.53.4.0 instead of the Turso driver. The
+            result describes the reference implementation, not a target for Turso.
         -->
         <profile>
             <id>xerial-control</id>
@@ -238,8 +239,8 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <!-- The control run is a reference probe: it must not run the
-                                 fast Turso fit suite through the xerial driver. -->
+                            <!-- The reference probe must not run the fast Turso fit
+                                 suite through the reference driver. -->
                             <skipTests>true</skipTests>
                         </configuration>
                     </plugin>

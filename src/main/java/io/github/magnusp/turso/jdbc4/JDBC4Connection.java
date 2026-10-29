@@ -268,7 +268,8 @@ public final class JDBC4Connection implements Connection {
         }
       }
     }
-    // Releasing the outermost savepoint commits the transaction, like xerial does.
+    // Releasing the outermost savepoint commits the transaction, matching SQLite savepoint
+    // semantics.
     if (released && savepoints.isEmpty()) {
       commit();
     }

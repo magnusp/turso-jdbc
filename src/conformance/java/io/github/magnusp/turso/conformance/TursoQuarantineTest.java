@@ -16,18 +16,18 @@ class TursoQuarantineTest {
             Pattern.compile("https://github\\.com/magnusp/turso-jdbc/issues/\\d+");
 
     @Test
-    void everyEntryNamesAReasonAnUpstreamDifferenceAndAnIssue() {
+    void everyEntryNamesAReasonAReferenceDifferenceAndAnIssue() {
         for (TursoQuarantine.Quarantined quarantined : TursoQuarantine.QUARANTINED) {
             assertThat(quarantined.className()).startsWith("org.sqlite.");
             assertThat(quarantined.methodName()).isNotBlank();
             assertThat(quarantined.reason()).isNotBlank();
-            assertThat(quarantined.upstreamDifference()).isNotBlank();
+            assertThat(quarantined.referenceDifference()).isNotBlank();
             assertThat(quarantined.issue()).matches(ISSUE_LINK);
         }
     }
 
     @Test
-    void everyEntryMatchesAVendoredTestMethod() throws Exception {
+    void everyEntryMatchesAnExportedTestMethod() throws Exception {
         for (TursoQuarantine.Quarantined quarantined : TursoQuarantine.QUARANTINED) {
             Class<?> testClass = Class.forName(quarantined.className());
             assertThat(Arrays.stream(testClass.getDeclaredMethods()).map(Method::getName))

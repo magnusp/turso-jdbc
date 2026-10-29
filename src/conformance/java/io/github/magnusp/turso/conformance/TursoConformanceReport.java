@@ -17,7 +17,8 @@ import org.junit.platform.launcher.TestPlan;
  * <p>The report is enabled only by the Failsafe configuration, so a plain {@code mvn test} does
  * not leave a stale summary behind. {@code total} is the number of discovered included tests:
  * {@code total = executed + quarantined}. A JUnit aborted test (a failed assumption) is counted as
- * skipped because the pinned xerial suite only uses skip semantics for unavailable capabilities.
+ * skipped because the exported reference test tree only uses skip semantics for unavailable
+ * capabilities.
  */
 public final class TursoConformanceReport implements TestExecutionListener {
 

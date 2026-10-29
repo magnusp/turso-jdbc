@@ -12,7 +12,8 @@
 # upstream-xerial_sqlite-jdbc/CHECKSUMS.sha256, updates the current hash, and
 # adds a line in this file:
 #   # divergence: <path> -- <non-empty reason>
-# Use the reason to say which embedded-Turso behavior makes parity impossible.
+# Use the reason to say which embedded-Turso behavior makes a literal copy
+# inappropriate.
 
 # Selected support code.
 # selected: src/test/java/org/sqlite/Utils.java -- compile-option assumptions shared by selected tests; not a test class.

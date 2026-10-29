@@ -9,23 +9,23 @@ import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.launcher.PostDiscoveryFilter;
 
 /**
- * Excludes explicitly listed xerial test methods from the Turso conformance run.
+ * Excludes explicitly listed reference-test methods from the Turso conformance run.
  *
- * <p>Entries cover the selected xerial methods whose expectations the embedded engine cannot meet
- * today: folded identifier case (#23), two experimental schema features (#19), and the deliberate
- * stored-procedure contract (#21). Every entry names a method, a reason, the upstream difference,
- * and an issue, and {@link TursoQuarantineTest} rejects a blank or stale entry.
- * Class-level entries are not supported. The filter is inactive in the {@code xerial-control} run,
- * where the reference driver is the subject.
+ * <p>Entries cover the selected reference-test methods whose expectations the embedded engine
+ * cannot meet today: folded identifier case (#23), two experimental schema features (#19), and the
+ * deliberate stored-procedure contract (#21). Every entry names a method, a reason, the difference
+ * from the reference driver, and an issue, and {@link TursoQuarantineTest} rejects a blank or
+ * stale entry. Class-level entries are not supported. The filter is inactive in the reference
+ * probe, where the reference driver is the subject.
  */
 public final class TursoQuarantine implements PostDiscoveryFilter {
 
-    /** One upstream test method whose xerial expectation is quarantined on Turso. */
+    /** One reference-test method whose expectation is quarantined on Turso. */
     record Quarantined(
             String className,
             String methodName,
             String reason,
-            String upstreamDifference,
+            String referenceDifference,
             String issue) {}
 
     static final List<Quarantined> QUARANTINED =
@@ -34,97 +34,97 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
                             "org.sqlite.DBMetaDataTest",
                             "columnOrderOfgetTables",
                             "column order fixture creates TABLE1, TABLE3 and VIEW1, which the engine stores folded",
-                            "xerial reports the declared spelling; the engine folds every identifier to lower case",
+                            "the reference driver reports the declared spelling; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getTables",
                             "the fixture view is stored as testview",
-                            "xerial reports testView; the engine folds every identifier to lower case",
+                            "the reference driver reports testView; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getColumns",
                             "the fixture view is stored as testview",
-                            "xerial reports testView; the engine folds every identifier to lower case",
+                            "the reference driver reports testView; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "moreOfgetColumns",
                             "the mixed-case fixture table is stored as tabcols2",
-                            "xerial reports TabCols2; the engine folds every identifier to lower case",
+                            "the reference driver reports TabCols2; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "columnOrderOfgetExportedKeys",
                             "the last fixture parent is stored as referred",
-                            "xerial reports REFERRED; the engine folds every identifier to lower case",
+                            "the reference driver reports REFERRED; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getExportedKeysColsForMultipleImports",
                             "the fixture parent is stored as parent1",
-                            "xerial reports PARENT1; the engine folds every identifier to lower case",
+                            "the reference driver reports PARENT1; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getExportedKeysColsForNamedKeys",
                             "the fixture parent is stored as parent1",
-                            "xerial reports PARENT1; the engine folds every identifier to lower case",
+                            "the reference driver reports PARENT1; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getImportedKeysCols2",
                             "the fixture tables are stored as authors and books",
-                            "xerial reports Authors and Books; the engine folds every identifier to lower case",
+                            "the reference driver reports Authors and Books; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getImportedKeysColsForMixedCaseDefinition",
                             "the fixture parent is stored as parent1",
-                            "xerial reports Parent1; the engine folds every identifier to lower case",
+                            "the reference driver reports Parent1; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getImportedKeysColsForMultipleImports",
                             "the fixture parents are stored as parent1 and parent2",
-                            "xerial reports PARENT1 and PARENT2; the engine folds every identifier to lower case",
+                            "the reference driver reports PARENT1 and PARENT2; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getImportedKeysColsForNamedKeys",
                             "the fixture parent is stored as parent1",
-                            "xerial reports PARENT1; the engine folds every identifier to lower case",
+                            "the reference driver reports PARENT1; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getImportedKeysMultipleColumns",
                             "the fixture parent is stored as pone",
-                            "xerial reports PONE; the engine folds every identifier to lower case",
+                            "the reference driver reports PONE; the engine folds every identifier to lower case",
                             "https://github.com/magnusp/turso-jdbc/issues/23"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "autoincrement",
                             "the engine gates WITHOUT ROWID tables behind the experimental without_rowid feature",
-                            "xerial creates the table and asserts autoincrement metadata",
+                            "the reference driver creates the table and asserts autoincrement metadata",
                             "https://github.com/magnusp/turso-jdbc/issues/19"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "getColumnsIncludingGeneratedStored",
                             "the engine rejects stored generated columns",
-                            "xerial creates the table and reports IS_GENERATEDCOLUMN=YES",
+                            "the reference driver creates the table and reports IS_GENERATEDCOLUMN=YES",
                             "https://github.com/magnusp/turso-jdbc/issues/19"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "columnOrderOfgetProcedurColumns",
                             "getProcedureColumns throws SQLFeatureNotSupportedException by design",
-                            "xerial returns an empty 20-column procedure-column result set",
+                            "the reference driver returns an empty 20-column procedure-column result set",
                             "https://github.com/magnusp/turso-jdbc/issues/21"),
                     new Quarantined(
                             "org.sqlite.DBMetaDataTest",
                             "columnOrderOfgetProcedures",
                             "getProcedures throws SQLFeatureNotSupportedException by design",
-                            "xerial returns an empty 9-column procedure result set",
+                            "the reference driver returns an empty 9-column procedure result set",
                             "https://github.com/magnusp/turso-jdbc/issues/21"));
 
     /**
