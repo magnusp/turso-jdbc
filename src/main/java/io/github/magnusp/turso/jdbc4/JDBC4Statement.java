@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -26,6 +27,10 @@ public class JDBC4Statement implements Statement {
       Pattern.compile(
           "^\\s*(?:with\\s+.+\\(.+?\\))*\\s*(?:insert|replace)\\s*",
           Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+
+  // After the first statement, only whitespace, semicolons, and comments may follow.
+  private static final Pattern TRAILING_PATTERN =
+      Pattern.compile("(?:\\s|;|--[^\\n]*|/\\*.*?\\*/)*", Pattern.DOTALL);
 
   protected final JDBC4Connection connection;
 
@@ -100,7 +105,7 @@ public class JDBC4Statement implements Statement {
               try {
                 // TODO: if sql is a readOnly query, do we still need the locks?
                 connectionLock.lock();
-                return connection.prepare(sql);
+                return prepareSingle(sql);
               } finally {
                 connectionLock.unlock();
               }
@@ -263,7 +268,7 @@ public class JDBC4Statement implements Statement {
               generatedKeys.clear();
             }
             closePreviousStatement();
-            statement = connection.prepare(sql);
+            statement = prepareSingle(sql);
             statement.getResultSet().setMaxRows(maxRows);
             final long previousChanges = statement.totalChanges();
             final boolean result = statement.execute();
@@ -434,6 +439,20 @@ public class JDBC4Statement implements Statement {
       statement.close();
       statement = null;
     }
+  }
+
+  private TursoStatement prepareSingle(String sql) throws SQLException {
+    TursoConnection.ParsedStatement parsed = connection.getTursoConnection().prepareFirst(sql);
+    if (parsed.statement() == null) {
+      return connection.prepare(sql);
+    }
+    if (!TRAILING_PATTERN.matcher(sql.substring(parsed.tail())).matches()) {
+      parsed.statement().close();
+      throw new SQLSyntaxErrorException(
+          "Statement contains more than one SQL statement; use executeUpdate", "42000");
+    }
+    parsed.statement().initializeColumnMetadata();
+    return parsed.statement();
   }
 
   @Override

@@ -189,4 +189,38 @@ class MultiStatementTest {
       assertThat(count(statement)).isEqualTo(1);
     }
   }
+
+  @Test
+  void executeRejectsMoreThanOneStatementAndRunsNone(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-reject");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (v INTEGER)");
+
+      assertThatThrownBy(
+              () ->
+                  statement.execute(
+                      "INSERT INTO t (v) VALUES (1); INSERT INTO t (v) VALUES (2)"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+      assertThat(count(statement)).isZero();
+    }
+  }
+
+  @Test
+  void executeQueryRejectsMoreThanOneStatement(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "query-reject");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.executeQuery("select 1; select 2"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+    }
+  }
+
+  @Test
+  void executeAcceptsTrailingCommentAfterOneStatement(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-comment");
+        Statement statement = connection.createStatement()) {
+      assertThat(statement.execute("select 1; -- trailing comment")).isTrue();
+    }
+  }
 }

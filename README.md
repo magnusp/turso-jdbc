@@ -252,7 +252,9 @@ provide.
   driver reports both as `SQLFeatureNotSupportedException` with SQLState `0A000` instead of a
   parse error. Virtual generated columns work.
 - `Statement.executeUpdate` accepts semicolon-separated statements and returns the combined
-  affected-row count. `Statement.execute` and `executeQuery` execute one statement.
+  affected-row count. `Statement.execute` and `executeQuery` accept one statement. A second
+  statement throws `SQLException` with SQLState `42000` before anything runs. Only whitespace,
+  semicolons, and comments may follow the first statement.
 - The engine folds every identifier to lower case, including quoted names. Metadata reports the
   canonical stored name, so a table created as `MyTable` appears as `mytable`.
 - Encryption entry points exist in the core but are untested.
