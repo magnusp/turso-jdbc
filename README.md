@@ -104,8 +104,8 @@ file on first use.
 - 2 native manifest tests (`io.github.magnusp.turso.NativeManifestTest`)
 - 6 stored procedure rejection tests (`io.github.magnusp.turso.CallableStatementUnsupportedTest`)
 
-`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 243 tests
-with 0 failures, 3 skips, and 17 quarantined methods. The report accounts for 260 total
+`mvn verify` adds the conformance source set under `src/conformance`. Failsafe runs 242 tests
+with 0 failures, 3 skips, and 18 quarantined methods. The report accounts for 260 total
 (`total = executed + quarantined`):
 
 - 13 classes from the exported reference test tree
