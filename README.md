@@ -274,8 +274,9 @@ provide.
   affected-row count. `Statement.execute` and `executeQuery` accept one statement. A second
   statement throws `SQLException` with SQLState `42000` before anything runs. Only whitespace,
   semicolons, and comments may follow the first statement.
-- The engine folds every identifier to lower case, including quoted names. Metadata reports the
-  canonical stored name, so a table created as `MyTable` appears as `mytable`.
+- The engine folds every identifier to lower case, including quoted names
+  ([tursodatabase/turso#11046](https://github.com/tursodatabase/turso/issues/11046)). Metadata
+  reports the canonical stored name, so a table created as `MyTable` appears as `mytable`.
 - `Connection.setReadOnly` sets `PRAGMA query_only` on that connection. It is a hint against this
   connection, not physical isolation: another connection can still write the file.
 - Encryption entry points exist in the core but are untested.
