@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.magnusp.turso.core.TursoNative;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Properties;
@@ -40,6 +42,17 @@ class NativeManifestTest {
     assertThat(size).isEqualTo(Long.parseLong(manifest.getProperty("SO_SIZE")));
     assertThat(HexFormat.of().formatHex(digest.digest()))
         .isEqualTo(manifest.getProperty("SO_SHA256"));
+  }
+
+  @Test
+  void syncServerImageUsesThePinnedTursoVersion() throws Exception {
+    String dockerfile =
+        Files.readString(Path.of("src/sync-it/resources/sync-server/Dockerfile"));
+    String version = manifest().getProperty("TURSO_SDK_KIT_VERSION");
+
+    assertThat(dockerfile)
+        .as("sync server image must speak the protocol of the bundled client")
+        .contains("@tursodatabase/cli-linux-x64-gnu@" + version);
   }
 
   private static Properties manifest() throws Exception {

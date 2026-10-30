@@ -28,6 +28,7 @@
         <flyway.version>12.4.0</flyway.version>
         <slf4j.version>2.0.20</slf4j.version>
         <xerial.version>3.54.1.0</xerial.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <dependencies>
@@ -225,6 +226,57 @@
     </build>
 
     <profiles>
+        <!--
+            Sync server integration tier: a Turso sync server started from
+            src/sync-it/resources/compose.yaml, either by Testcontainers or by the caller.
+            The default mvn verify stays hermetic and has no Docker dependency.
+        -->
+        <profile>
+            <id>sync-it</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.testcontainers</groupId>
+                    <artifactId>testcontainers</artifactId>
+                    <version>${testcontainers.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-sync-it-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>${project.basedir}/src/sync-it/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <includes combine.self="override">
+                                <include>**/*IT.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <conformance.report.enabled>false</conformance.report.enabled>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
         <!--
             Reference probe: run the same exported test tree against
             org.xerial:sqlite-jdbc 3.53.4.0 instead of the Turso driver. The
