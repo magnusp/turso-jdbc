@@ -1,7 +1,5 @@
 package io.github.magnusp.turso.jdbc4;
 
-import static java.util.Objects.requireNonNull;
-
 import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -100,23 +98,27 @@ public class JDBC4Statement implements Statement {
               try {
                 // TODO: if sql is a readOnly query, do we still need the locks?
                 connectionLock.lock();
-                return prepareFirstStatement(sql);
+                TursoStatement prepared = prepareFirstStatement(sql);
+                if (prepared.columnCount() == 0) {
+                  // The reference driver steps the first statement before rejecting it, so DDL and
+                  // DML side effects are visible even though executeQuery throws.
+                  try {
+                    prepared.getResultSet().consumeAll();
+                  } finally {
+                    prepared.close();
+                  }
+                  updateCount = -1;
+                  currentResultSet = null;
+                  resultSetAvailable = false;
+                  resultSetReturned = false;
+                  throw new SQLException("query does not return ResultSet", "HY000", 0);
+                }
+                return prepared;
               } finally {
                 connectionLock.unlock();
               }
             });
 
-    requireNonNull(statement, "statement should not be null after running execute method");
-    if (statement.columnCount() == 0) {
-      // The reference driver steps the first statement before rejecting it, so DDL and DML side
-      // effects are visible even though executeQuery throws.
-      try {
-        statement.getResultSet().consumeAll();
-      } finally {
-        closePreviousStatement();
-      }
-      throw new SQLException("query does not return ResultSet", "SQLITE_DONE", 101);
-    }
     statement.getResultSet().setMaxRows(maxRows);
     currentResultSet = new JDBC4ResultSet(statement.getResultSet(), this);
     resultSetAvailable = true;
@@ -447,18 +449,29 @@ public class JDBC4Statement implements Statement {
   }
 
   /**
-   * Prepares the first statement and ignores the tail, matching SQLite's prepare contract. A script
-   * with several statements runs only the first one here; {@link #executeUpdate(String)} is the
-   * method that runs all of them.
+   * Prepares exactly one statement. A second statement, or input with no statement at all, is
+   * rejected before anything runs.
    */
   private TursoStatement prepareFirstStatement(String sql) throws SQLException {
     TursoConnection.ParsedStatement parsed = connection.getTursoConnection().prepareFirst(sql);
     TursoStatement first = parsed.statement();
     if (first == null) {
-      throw new SQLException("SQL string contains no executable statement");
+      throw new SQLException("The supplied SQL string contains no statements", "42000");
     }
-    first.initializeColumnMetadata();
-    return first;
+    try {
+      if (connection.getTursoConnection().hasStatementAfter(sql, parsed.tail())) {
+        throw new SQLException("You can only execute one statement at a time", "42000");
+      }
+      first.initializeColumnMetadata();
+      return first;
+    } catch (SQLException e) {
+      try {
+        first.close();
+      } catch (SQLException closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
+      throw e;
+    }
   }
 
   @Override

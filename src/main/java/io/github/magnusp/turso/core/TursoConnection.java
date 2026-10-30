@@ -129,8 +129,22 @@ public final class TursoConnection {
    * {@code statement} is null when nothing parseable remains.
    */
   public ParsedStatement prepareFirst(String sql) throws SQLException {
+    return prepareFirst(sql, true);
+  }
+
+  /**
+   * Parses the first statement in {@code sql} without starting an implicit transaction. Used to
+   * inspect a tail while deciding whether the caller supplied more than one statement.
+   */
+  public ParsedStatement prepareFirstWithoutTransaction(String sql) throws SQLException {
+    return prepareFirst(sql, false);
+  }
+
+  private ParsedStatement prepareFirst(String sql, boolean checkTransaction) throws SQLException {
     logger.trace("DriverManager [{}] [Turso EXEC] {}", Thread.currentThread().getName(), sql);
-    ensureTransactionStarted(sql);
+    if (checkTransaction) {
+      ensureTransactionStarted(sql);
+    }
     synchronized (this) {
       checkOpen();
       TursoNative.PreparedFirst prepared = TursoNative.prepareFirst(connectionPtr, sql);
@@ -141,6 +155,37 @@ public final class TursoConnection {
           new TursoStatement(sql.substring(0, prepared.tail()), prepared.statement(), this),
           prepared.tail());
     }
+  }
+
+  /**
+   * Reports whether another statement follows {@code tail} in {@code sql}.
+   *
+   * <p>Uses the prepare-first contract, so trailing whitespace, semicolons, and comments do not
+   * count. The probe does not start an implicit transaction and finalizes any statement it
+   * prepares. A tail that fails to prepare still names a second statement, so it counts.
+   */
+  public boolean hasStatementAfter(String sql, int tail) throws SQLException {
+    if (tail < 0 || tail > sql.length()) {
+      throw new IllegalArgumentException(
+          "tail " + tail + " is outside a SQL string of " + sql.length());
+    }
+    if (tail == sql.length()) {
+      return false;
+    }
+    ParsedStatement next;
+    try {
+      next = prepareFirstWithoutTransaction(sql.substring(tail));
+    } catch (SQLException e) {
+      // Preparing the tail can fail for reasons that only exist before the first statement runs,
+      // such as a missing table that the first statement creates. It is still a second statement.
+      return true;
+    }
+    TursoStatement statement = next.statement();
+    if (statement == null) {
+      return false;
+    }
+    statement.close();
+    return true;
   }
 
   private TursoStatement prepare(String sql, boolean checkTransaction) throws SQLException {
