@@ -153,6 +153,11 @@ public final class TursoStatement implements AutoCloseable {
     return TursoNative.parameterCount(openStatementPointer());
   }
 
+  /** Number of result columns, or zero when the statement does not produce rows. */
+  public synchronized int columnCount() throws SQLException {
+    return TursoNative.columnCount(openStatementPointer());
+  }
+
   public long lastInsertRowid() throws SQLException {
     return connection.getLastInsertRowid();
   }

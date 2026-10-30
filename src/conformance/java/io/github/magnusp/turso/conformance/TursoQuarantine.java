@@ -13,8 +13,9 @@ import org.junit.platform.launcher.PostDiscoveryFilter;
  *
  * <p>Entries cover the selected reference-test methods whose expectations the embedded engine
  * cannot meet today: folded identifier case (#23), two experimental schema features (#19), the
- * deliberate stored-procedure contract (#21), BIT read as Boolean (#20), and the catalog model
- * (#36). Every entry names a method, a reason, the difference from the reference driver, and an
+ * deliberate stored-procedure contract (#21), BIT read as Boolean (#20), the catalog model
+ * (#36), and the engine's empty `PRAGMA compile_options` result (#76). Every entry names a
+ * method, a reason, the difference from the reference driver, and an
  * issue, and {@link TursoQuarantineTest} rejects a blank or stale entry. Class-level entries are
  * not supported. The filter is inactive in the reference probe, where the reference driver is the
  * subject.
@@ -138,7 +139,13 @@ public final class TursoQuarantine implements PostDiscoveryFilter {
                             "columnOrderOfgetCatalogs",
                             "getCatalogs returns the main and temp databases as catalogs",
                             "the reference driver returns an empty catalog result set; Turso models the database name as the catalog",
-                            "https://github.com/magnusp/turso-jdbc/issues/36"));
+                            "https://github.com/magnusp/turso-jdbc/issues/36"),
+                    new Quarantined(
+                            "org.sqlite.DBMetaDataTest",
+                            "version",
+                            "PRAGMA compile_options returns no columns, so executeQuery throws before the test's assumption runs",
+                            "the reference driver returns the compile-option rows and reaches the assumption; the engine has no compile-options result",
+                            "https://github.com/magnusp/turso-jdbc/issues/76"));
 
     /**
      * Development switch for running quarantined methods against Turso. The guard tests stay
