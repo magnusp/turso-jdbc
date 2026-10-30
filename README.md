@@ -147,7 +147,7 @@ non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuaranti
 explicit reference-test methods. Each entry has a reason, the difference from the reference driver,
 and an issue link. The entries cover folded identifier case (#23), two experimental engine schema
 features (#19), the deliberate stored-procedure contract (#21), BIT read as Boolean (#20), the
-catalog model (#36), and the engine's empty `PRAGMA compile_options` result (#76).
+catalog model (#36), and the engine's zero-column `PRAGMA compile_options` result (#83).
 `TursoQuarantineTest` rejects a blank or stale entry, and the filter is inactive in the reference
 probe. Pass
 `-Dconformance.quarantine.enabled=false` to run the quarantined methods against Turso while
@@ -266,13 +266,14 @@ provide.
 - `WITHOUT ROWID` tables and stored generated columns are rejected by this engine build. The
   driver reports both as `SQLFeatureNotSupportedException` with SQLState `0A000` instead of a
   parse error. Virtual generated columns work.
-- `Statement.executeUpdate` runs every semicolon-separated statement and returns the combined
-  affected-row count. `Statement.execute` and `executeQuery` run only the first statement and
-  ignore the rest. Semicolons inside `--` line comments or `/* */` block comments do not separate
-  statements. Comment-only, blank, and empty-statement input returns `0` from `executeUpdate`;
-  `execute` and `executeQuery` throw because there is no statement to run. `executeQuery` on a
-  statement that returns no columns runs it and then throws `SQLException` with SQLState
-  `SQLITE_DONE`, matching the reference driver.
+- `Statement.executeUpdate` runs every statement in the string and returns the combined
+  affected-row count. `Statement.execute` and `executeQuery` accept exactly one statement; a second
+  statement throws `SQLException` with SQLState `42000` before anything runs. Semicolons inside
+  `--` line comments or `/* */` block comments do not separate statements. Comment-only, blank, and
+  empty-statement input returns `0` from `executeUpdate`; `execute` and `executeQuery` throw
+  `SQLException` with SQLState `42000` and the message
+  `The supplied SQL string contains no statements`. `executeQuery` on a statement that returns no
+  columns runs it and then throws `SQLException` with SQLState `HY000`.
 - The engine folds every identifier to lower case, including quoted names
   ([tursodatabase/turso#11046](https://github.com/tursodatabase/turso/issues/11046)). Metadata
   reports the canonical stored name, so a table created as `MyTable` appears as `mytable`.
