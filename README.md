@@ -113,6 +113,31 @@ The `xerial-control` profile is a reference probe. It skips the fast suite and r
 conformance classes against `org.xerial:sqlite-jdbc:3.53.4.0`. Its report describes the reference
 driver, not a target for Turso.
 
+### Sync server integration tier
+
+`sync-it` runs a Turso sync server from `src/sync-it/resources/compose.yaml` and a Failsafe tier
+that talks to it. The default `mvn test` and `mvn verify` never start Docker or run these tests.
+
+```sh
+mvn -Psync-it verify
+```
+
+Testcontainers starts the compose project, waits for the service, and removes the stack and its
+volume when the JVM exits. The first run builds the server image, which installs the pinned
+`@tursodatabase/cli-linux-x64-gnu` package, so it needs network access.
+
+To use a stack you started yourself, point the tier at it:
+
+```sh
+docker compose -f src/sync-it/resources/compose.yaml up -d --wait
+mvn -Psync-it verify -Dturso.sync.url=http://127.0.0.1:18080
+docker compose -f src/sync-it/resources/compose.yaml down -v
+```
+
+The server has no `GET /health`; the compose healthcheck posts a trivial query to `/v2/pipeline`.
+The image version tracks `TURSO_SDK_KIT_VERSION` in the native manifest so the client and the
+server speak the same sync protocol.
+
 ### Reference conformance harness
 
 The test tree is a harness, not a specification. It exists so the same scenarios can run against

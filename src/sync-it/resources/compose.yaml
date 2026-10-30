@@ -1,0 +1,29 @@
+services:
+  sync-server:
+    build:
+      context: sync-server
+    command: ["--sync-server", "0.0.0.0:8080", "/data/data.db"]
+    ports:
+      - "127.0.0.1:${TURSO_SYNC_PORT:-18080}:8080"
+    volumes:
+      - sync-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-fsS",
+          "-X",
+          "POST",
+          "http://127.0.0.1:8080/v2/pipeline",
+          "-H",
+          "content-type: application/json",
+          "-d",
+          "{\"requests\":[{\"type\":\"execute\",\"stmt\":{\"sql\":\"select 1\"}}]}",
+        ]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  sync-data:

@@ -28,6 +28,28 @@ jobs:
         run: tools/check-quarantine --self-test
       - run: mvn -B test
 
+  sync-it:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Start the Turso sync server
+        run: docker compose -f src/sync-it/resources/compose.yaml up -d --wait
+      - name: Check the pipeline endpoint
+        run: |
+          curl -fsS -X POST http://127.0.0.1:18080/v2/pipeline \
+            -H 'content-type: application/json' \
+            -d '{"requests":[{"type":"execute","stmt":{"sql":"select 1"}}]}'
+      - name: Run the sync integration tier
+        run: mvn -B verify -Psync-it -Dturso.sync.url=http://127.0.0.1:18080
+      - name: Stop the Turso sync server
+        if: always()
+        run: docker compose -f src/sync-it/resources/compose.yaml down -v
+
   conformance:
     runs-on: ubuntu-latest
     steps:
