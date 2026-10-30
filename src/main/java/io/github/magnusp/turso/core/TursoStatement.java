@@ -35,7 +35,7 @@ public final class TursoStatement implements AutoCloseable {
 
   synchronized TursoStepResult step() throws SQLException {
     long pointer = openStatementPointer();
-    int status = TursoNative.step(pointer);
+    int status = connection.step(pointer);
     if (status == TursoNative.ROW) {
       int columnCount = TursoNative.columnCount(pointer);
       Object[] values = TursoNative.row(pointer, columnCount);

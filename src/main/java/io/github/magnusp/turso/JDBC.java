@@ -7,6 +7,7 @@ import io.github.magnusp.turso.annotations.Nullable;
 import io.github.magnusp.turso.annotations.SkipNullableCheck;
 import io.github.magnusp.turso.core.TursoPropertiesHolder;
 import io.github.magnusp.turso.jdbc4.JDBC4Connection;
+import io.github.magnusp.turso.jdbc4.JDBC4SyncConnection;
 import io.github.magnusp.turso.utils.Logger;
 import io.github.magnusp.turso.utils.LoggerFactory;
 
@@ -50,7 +51,48 @@ public final class JDBC implements Driver {
       merged.putAll(parseQuery(address.substring(query + 1)));
       address = address.substring(0, query);
     }
+
+    TursoConfig config = new TursoConfig(merged);
+    String syncUrl = config.syncUrl();
+    if (config.authToken() != null && syncUrl == null) {
+      throw new SQLFeatureNotSupportedException(
+          "auth_token requires sync_url: " + url + " has no remote to authenticate against");
+    }
+    rejectRemoteAddress(url, address);
+    if (syncUrl != null) {
+      if (address.isBlank()) {
+        throw new SQLFeatureNotSupportedException(
+            "An embedded replica needs a local database path in " + url);
+      }
+      if ("file::memory:".equals(address) || ":memory:".equals(address)) {
+        throw new SQLFeatureNotSupportedException(
+            "An embedded replica needs a local file path; " + address + " cannot be synced");
+      }
+      return new JDBC4SyncConnection(url, address, syncUrl, merged);
+    }
     return new JDBC4Connection(url, address, merged);
+  }
+
+  /**
+   * Rejects a remote URL in the address slot. The address is always a local database path; a remote
+   * endpoint belongs in {@code sync_url}.
+   */
+  private static void rejectRemoteAddress(String url, String address)
+      throws SQLFeatureNotSupportedException {
+    String lower = address.toLowerCase(Locale.ROOT);
+    boolean remote =
+        lower.startsWith("http://")
+            || lower.startsWith("https://")
+            || lower.startsWith("libsql://")
+            || lower.startsWith("turso://");
+    if (remote) {
+      throw new SQLFeatureNotSupportedException(
+          "Remote URL "
+              + url
+              + " is not supported as a database path. Use jdbc:turso:<local-path>?sync_url="
+              + address
+              + " for an embedded replica.");
+    }
   }
 
   private static Properties parseQuery(String query) {

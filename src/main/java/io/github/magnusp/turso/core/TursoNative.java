@@ -7,9 +7,6 @@ import static java.lang.foreign.ValueLayout.JAVA_DOUBLE;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -20,24 +17,20 @@ import java.lang.foreign.StructLayout;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTransientConnectionException;
 import java.sql.SQLTransientException;
-import java.util.HexFormat;
 import java.util.Locale;
 
 /**
  * Panama FFM bridge over the {@code turso_sdk_kit} C ABI.
  *
- * <p>Only the operations needed by the JDBC core are bound. The driver uses {@code async_io=0}, so
- * the engine drives I/O internally and step returns ROW or DONE.
+ * <p>Embedded connections use {@code async_io=0}, so the engine drives I/O internally and step
+ * returns ROW or DONE. Sync connections use {@code async_io=1} and hand each IO step to an {@link
+ * IoDriver}, which serves the sync engine's IO queue before the statement is resumed.
  */
 public final class TursoNative {
 
@@ -63,11 +56,9 @@ public final class TursoNative {
   private static final int TYPE_BLOB = 4;
   private static final int TYPE_NULL = 5;
 
-  private static final String NATIVE_DIR = "/io/github/magnusp/turso/native/linux-x86_64";
-  private static final String LIB_RESOURCE = NATIVE_DIR + "/libturso_sdk_kit.so";
   private static final String LIB_NAME = "libturso_sdk_kit.so";
 
-  private static final NativeManifest MANIFEST = NativeManifest.load();
+  static final NativeManifest MANIFEST = NativeManifest.load();
 
   private static final StructLayout DB_CONFIG =
       MemoryLayout.structLayout(
@@ -82,7 +73,8 @@ public final class TursoNative {
               MemoryLayout.paddingLayout(4))
           .withName("turso_database_config_t");
 
-  private static final long OFF_ASYNC_IO = DB_CONFIG.byteOffset(PathElement.groupElement("async_io"));
+  private static final long OFF_ASYNC_IO =
+      DB_CONFIG.byteOffset(PathElement.groupElement("async_io"));
   private static final long OFF_PATH = DB_CONFIG.byteOffset(PathElement.groupElement("path"));
   private static final long OFF_FEATURES =
       DB_CONFIG.byteOffset(PathElement.groupElement("experimental_features"));
@@ -95,7 +87,7 @@ public final class TursoNative {
 
   private static final Linker LINKER = Linker.nativeLinker();
 
-  private static final LoadedNative LOADED = load();
+  private static final NativeLibrary.Loaded LOADED = load();
   private static final SymbolLookup LOOKUP = LOADED.lookup();
 
   private static final MethodHandle H_VERSION =
@@ -127,9 +119,7 @@ public final class TursoNative {
   private static final MethodHandle H_COL_NAME =
       handle("turso_statement_column_name", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_COL_DECLTYPE =
-      handle(
-          "turso_statement_column_decltype",
-          FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));
+      handle("turso_statement_column_decltype", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_N_CHANGE =
       handle("turso_statement_n_change", FunctionDescriptor.of(JAVA_LONG, ADDRESS));
   private static final MethodHandle H_PARAM_COUNT =
@@ -155,9 +145,7 @@ public final class TursoNative {
           "turso_statement_bind_positional_blob",
           FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_ROW_KIND =
-      handle(
-          "turso_statement_row_value_kind",
-          FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
+      handle("turso_statement_row_value_kind", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_BYTES_COUNT =
       handle(
           "turso_statement_row_value_bytes_count",
@@ -167,9 +155,7 @@ public final class TursoNative {
           "turso_statement_row_value_bytes_ptr",
           FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_ROW_INT =
-      handle(
-          "turso_statement_row_value_int",
-          FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG));
+      handle("turso_statement_row_value_int", FunctionDescriptor.of(JAVA_LONG, ADDRESS, JAVA_LONG));
   private static final MethodHandle H_ROW_DOUBLE =
       handle(
           "turso_statement_row_value_double",
@@ -177,9 +163,7 @@ public final class TursoNative {
   private static final MethodHandle H_LAST_ROWID =
       handle("turso_connection_last_insert_rowid", FunctionDescriptor.of(JAVA_LONG, ADDRESS));
   private static final MethodHandle H_BUSY_TIMEOUT =
-      handle(
-          "turso_connection_set_busy_timeout_ms",
-          FunctionDescriptor.ofVoid(ADDRESS, JAVA_LONG));
+      handle("turso_connection_set_busy_timeout_ms", FunctionDescriptor.ofVoid(ADDRESS, JAVA_LONG));
   private static final MethodHandle H_AUTOCOMMIT =
       handle("turso_connection_get_autocommit", FunctionDescriptor.of(JAVA_BOOLEAN, ADDRESS));
   private static final MethodHandle H_STR_DEINIT =
@@ -221,25 +205,16 @@ public final class TursoNative {
     return VERSION;
   }
 
-  public static long openDatabase(
-      String path, String features, String cipher, String hexkey) throws SQLException {
-    if (path == null || path.isEmpty()) {
-      throw new SQLException("database path is empty");
-    }
+  public static long openDatabase(String path, String features, String cipher, String hexkey)
+      throws SQLException {
     try (Arena arena = Arena.ofConfined()) {
-      MemorySegment config = arena.allocate(DB_CONFIG);
-      config.set(JAVA_LONG, OFF_ASYNC_IO, 0L);
-      config.set(ADDRESS, OFF_PATH, arena.allocateFrom(path));
-      if (features != null) {
-        config.set(ADDRESS, OFF_FEATURES, arena.allocateFrom(features));
-      }
+      MemorySegment config = databaseConfig(arena, path, 0L, features);
       if (cipher != null) {
         config.set(ADDRESS, OFF_CIPHER, arena.allocateFrom(cipher));
       }
       if (hexkey != null) {
         config.set(ADDRESS, OFF_HEXKEY, arena.allocateFrom(hexkey));
       }
-      config.set(JAVA_INT, OFF_OPEN_FLAGS, 0);
 
       MemorySegment dbSlot = arena.allocate(ADDRESS);
       dbSlot.set(ADDRESS, 0, MemorySegment.NULL);
@@ -266,6 +241,26 @@ public final class TursoNative {
     } catch (Throwable t) {
       throw new SQLException("Unable to open Turso database", t);
     }
+  }
+
+  /**
+   * Allocates and fills a {@code turso_database_config_t}.
+   *
+   * @param asyncIo 0 for engine-driven IO, 1 when the caller serves the sync IO queue
+   */
+  static MemorySegment databaseConfig(Arena arena, String path, long asyncIo, String features)
+      throws SQLException {
+    if (path == null || path.isEmpty()) {
+      throw new SQLException("database path is empty");
+    }
+    MemorySegment config = arena.allocate(DB_CONFIG);
+    config.set(JAVA_LONG, OFF_ASYNC_IO, asyncIo);
+    config.set(ADDRESS, OFF_PATH, arena.allocateFrom(path));
+    if (features != null) {
+      config.set(ADDRESS, OFF_FEATURES, arena.allocateFrom(features));
+    }
+    config.set(JAVA_INT, OFF_OPEN_FLAGS, 0);
+    return config;
   }
 
   public static long connect(long database) throws SQLException {
@@ -370,7 +365,17 @@ public final class TursoNative {
   public record PreparedFirst(long statement, int tail) {}
 
   /** Returns {@link #ROW} or {@link #DONE}. Throws on an engine error. */
+  /** Serves one engine IO step, for example the sync engine's IO queue. */
+  @FunctionalInterface
+  public interface IoDriver {
+    void run() throws SQLException;
+  }
+
   public static int step(long statement) throws SQLException {
+    return step(statement, null);
+  }
+
+  public static int step(long statement, IoDriver ioDriver) throws SQLException {
     MemorySegment stmt = MemorySegment.ofAddress(statement);
     for (int hops = 0; hops < 1_000_000; hops++) {
       try (Arena arena = Arena.ofConfined()) {
@@ -380,6 +385,9 @@ public final class TursoNative {
           return status;
         }
         if (status == IO) {
+          if (ioDriver != null) {
+            ioDriver.run();
+          }
           int ioStatus = (int) H_RUN_IO.invokeExact(stmt, err);
           if (ioStatus != OK) {
             throw error("turso_statement_run_io", ioStatus, err);
@@ -499,9 +507,7 @@ public final class TursoNative {
     int status;
     try {
       status =
-          (int)
-              H_BIND_INT.invokeExact(
-                  MemorySegment.ofAddress(statement), (long) position, value);
+          (int) H_BIND_INT.invokeExact(MemorySegment.ofAddress(statement), (long) position, value);
     } catch (Throwable t) {
       throw new SQLException("Unable to bind long", t);
     }
@@ -515,8 +521,7 @@ public final class TursoNative {
     try {
       status =
           (int)
-              H_BIND_DOUBLE.invokeExact(
-                  MemorySegment.ofAddress(statement), (long) position, value);
+              H_BIND_DOUBLE.invokeExact(MemorySegment.ofAddress(statement), (long) position, value);
     } catch (Throwable t) {
       throw new SQLException("Unable to bind double", t);
     }
@@ -535,10 +540,7 @@ public final class TursoNative {
       int status =
           (int)
               H_BIND_TEXT.invokeExact(
-                  MemorySegment.ofAddress(statement),
-                  (long) position,
-                  data,
-                  (long) bytes.length);
+                  MemorySegment.ofAddress(statement), (long) position, data, (long) bytes.length);
       if (status != OK) {
         throw new SQLException("bind_positional_text failed: " + statusName(status));
       }
@@ -558,10 +560,7 @@ public final class TursoNative {
       int status =
           (int)
               H_BIND_BLOB.invokeExact(
-                  MemorySegment.ofAddress(statement),
-                  (long) position,
-                  data,
-                  (long) value.length);
+                  MemorySegment.ofAddress(statement), (long) position, data, (long) value.length);
       if (status != OK) {
         throw new SQLException("bind_positional_blob failed: " + statusName(status));
       }
@@ -652,10 +651,8 @@ public final class TursoNative {
     }
     String lower = detail == null ? "" : detail.toLowerCase(Locale.ROOT);
     return switch (status) {
-      case CONSTRAINT ->
-          new SQLIntegrityConstraintViolationException(message, "23000", 19);
-      case BUSY, BUSY_SNAPSHOT ->
-          new SQLTransientConnectionException(message, "08001", 5);
+      case CONSTRAINT -> new SQLIntegrityConstraintViolationException(message, "23000", 19);
+      case BUSY, BUSY_SNAPSHOT -> new SQLTransientConnectionException(message, "08001", 5);
       case ERROR -> errorDetail(message, lower);
       case MISUSE -> new SQLException(message, "HY000", 21);
       case READONLY -> new SQLException(message, "HY000", 8);
@@ -741,13 +738,13 @@ public final class TursoNative {
     }
   }
 
-  private static MemorySegment errorSlot(Arena arena) {
+  static MemorySegment errorSlot(Arena arena) {
     MemorySegment err = arena.allocate(ADDRESS);
     err.set(ADDRESS, 0, MemorySegment.NULL);
     return err;
   }
 
-  private static String statusName(int status) {
+  static String statusName(int status) {
     return switch (status) {
       case OK -> "TURSO_OK(0)";
       case DONE -> "TURSO_DONE(1)";
@@ -776,7 +773,7 @@ public final class TursoNative {
         descriptor);
   }
 
-  private static LoadedNative load() {
+  private static NativeLibrary.Loaded load() {
     if (!"linux-x86_64".equals(MANIFEST.platform())) {
       throw new InternalError(
           "Unsupported native manifest "
@@ -791,181 +788,21 @@ public final class TursoNative {
               + NativeManifest.RESOURCE_PATH
               + ": SO_FILE="
               + MANIFEST.soFile()
-              + " does not match the bundled resource "
-              + LIB_RESOURCE
-              + ".");
-    }
-
-    Path path;
-    boolean verifyHash = false;
-    String explicit = System.getProperty("turso.native.path");
-    String directory = System.getProperty("turso.lib.path");
-    if (explicit != null && !explicit.isBlank()) {
-      path = Path.of(explicit).toAbsolutePath();
-      verifyHash = Boolean.parseBoolean(System.getProperty("turso.native.verifyHash", "false"));
-      requireFile(path);
-      if (verifyHash) {
-        verifyExplicit(path);
-      }
-    } else if (directory != null && !directory.isBlank()) {
-      path = Path.of(directory).resolve(LIB_NAME).toAbsolutePath();
-      verifyHash = Boolean.parseBoolean(System.getProperty("turso.native.verifyHash", "false"));
-      requireFile(path);
-      if (verifyHash) {
-        verifyExplicit(path);
-      }
-    } else {
-      checkPlatform();
-      path = extractLibrary();
-    }
-    return new LoadedNative(libraryLookup(path), path);
-  }
-
-  private static void requireFile(Path path) {
-    if (!Files.isRegularFile(path)) {
-      throw new InternalError(
-          "Native library not found at "
-              + path
-              + ". Set -Dturso.native.path to the .so file, -Dturso.lib.path to its directory,"
-              + " or omit both to use the library bundled in the jar.");
-    }
-  }
-
-  private static void verifyExplicit(Path path) {
-    long size;
-    String hash;
-    try {
-      size = Files.size(path);
-      hash = sha256(path);
-    } catch (IOException e) {
-      throw new InternalError("Unable to read native library " + path, e);
-    }
-    if (size != MANIFEST.soSize() || !hash.equals(MANIFEST.soSha256())) {
-      throw new InternalError(
-          "Native library "
-              + path
-              + " does not match "
-              + NativeManifest.RESOURCE_PATH
-              + ": expected size "
-              + MANIFEST.soSize()
-              + " and SHA-256 "
-              + MANIFEST.soSha256()
-              + ", got size "
-              + size
-              + " and SHA-256 "
-              + hash
-              + ".");
-    }
-  }
-
-  private static String sha256(Path path) throws IOException {
-    MessageDigest digest;
-    try {
-      digest = MessageDigest.getInstance("SHA-256");
-    } catch (NoSuchAlgorithmException e) {
-      throw new InternalError("SHA-256 is not available", e);
-    }
-    try (InputStream input = Files.newInputStream(path)) {
-      byte[] buffer = new byte[64 * 1024];
-      int read;
-      while ((read = input.read(buffer)) != -1) {
-        digest.update(buffer, 0, read);
-      }
-    }
-    return HexFormat.of().formatHex(digest.digest());
-  }
-
-  private static SymbolLookup libraryLookup(Path path) {
-    try {
-      return SymbolLookup.libraryLookup(path, Arena.global());
-    } catch (IllegalArgumentException | SecurityException | UnsatisfiedLinkError e) {
-      throw new InternalError(
-          "Unable to load "
+              + " does not match the bundled library "
               + LIB_NAME
-              + " from "
-              + path
-              + ": this build requires glibc <= "
-              + MANIFEST.soGlibcMax()
-              + " (SO_GLIBC_MAX) and was built on "
-              + MANIFEST.buildImage()
-              + " (BUILD_IMAGE, glibc "
-              + MANIFEST.buildGlibc()
-              + "). Check `ldd --version` and use a host with a compatible glibc, or rebuild the"
-              + " library with scripts/build-native.sh.",
-          e);
-    }
-  }
-
-  private static Path extractLibrary() {
-    try (InputStream input = TursoNative.class.getResourceAsStream(LIB_RESOURCE)) {
-      if (input == null) {
-        throw new InternalError(
-            "Missing native library resource "
-                + LIB_RESOURCE
-                + ". Build it with scripts/build-native.sh or set -Dturso.native.path.");
-      }
-      Path temp = Files.createTempFile("libturso_sdk_kit-", ".so");
-      boolean complete = false;
-      try {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        long size = 0;
-        try (OutputStream output = Files.newOutputStream(temp)) {
-          byte[] buffer = new byte[64 * 1024];
-          int read;
-          while ((read = input.read(buffer)) != -1) {
-            digest.update(buffer, 0, read);
-            output.write(buffer, 0, read);
-            size += read;
-          }
-        }
-        String hash = HexFormat.of().formatHex(digest.digest());
-        if (size != MANIFEST.soSize() || !hash.equals(MANIFEST.soSha256())) {
-          throw new InternalError(
-              "Native library resource "
-                  + LIB_RESOURCE
-                  + " does not match "
-                  + NativeManifest.RESOURCE_PATH
-                  + ": expected size "
-                  + MANIFEST.soSize()
-                  + " and SHA-256 "
-                  + MANIFEST.soSha256()
-                  + ", got size "
-                  + size
-                  + " and SHA-256 "
-                  + hash
-                  + ". The jar is corrupt or was built with a mismatched manifest.");
-        }
-        temp.toFile().deleteOnExit();
-        temp.toFile().setReadable(true, true);
-        temp.toFile().setWritable(true, true);
-        temp.toFile().setExecutable(true, true);
-        complete = true;
-        return temp.toAbsolutePath();
-      } finally {
-        if (!complete) {
-          Files.deleteIfExists(temp);
-        }
-      }
-    } catch (IOException e) {
-      throw new InternalError("Unable to extract " + LIB_NAME, e);
-    } catch (NoSuchAlgorithmException e) {
-      throw new InternalError("SHA-256 is not available", e);
-    }
-  }
-
-  private static void checkPlatform() {
-    String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-    String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
-    boolean linux = os.contains("linux");
-    boolean x86 = arch.contains("x86_64") || arch.contains("amd64");
-    if (!linux || !x86) {
-      throw new UnsupportedOperationException(
-          "This build of turso-jdbc ships only Linux x86_64. Detected "
-              + os
-              + "/"
-              + arch
               + ".");
     }
+    return NativeLibrary.load(
+        new NativeLibrary.Spec(
+            NativeManifest.NATIVE_DIR + "/" + MANIFEST.soFile(),
+            MANIFEST.soFile(),
+            MANIFEST.soSize(),
+            MANIFEST.soSha256(),
+            MANIFEST.soGlibcMax(),
+            MANIFEST.buildImage(),
+            MANIFEST.buildGlibc(),
+            "turso.native.path",
+            "turso.lib.path"));
   }
 
   private static String readVersion() {
@@ -979,6 +816,4 @@ public final class TursoNative {
       throw new ExceptionInInitializerError(t);
     }
   }
-
-  private record LoadedNative(SymbolLookup lookup, Path path) {}
 }

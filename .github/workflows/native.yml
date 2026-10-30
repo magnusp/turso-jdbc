@@ -64,6 +64,6 @@ jobs:
           {
             echo "### Fresh native build"
             echo '```'
-            grep -E '^(TURSO_COMMIT|TURSO_SDK_KIT_VERSION|SO_SIZE|SO_SHA256|SO_GLIBC_MAX|BUILD_IMAGE|BUILD_GLIBC|RUST_VERSION)=' "$manifest"
+            grep -E '^(TURSO_COMMIT|TURSO_SDK_KIT_VERSION|SO_SIZE|SO_SHA256|SO_GLIBC_MAX|SYNC_SO_SIZE|SYNC_SO_SHA256|SYNC_SO_GLIBC_MAX|BUILD_IMAGE|BUILD_GLIBC|RUST_VERSION)=' "$manifest"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

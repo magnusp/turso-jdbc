@@ -5,7 +5,8 @@ Panama FFM over Turso's `turso_sdk_kit` C ABI.
 
 The `java.sql` layer is forked from Turso's `bindings/java` JDBC 4 driver. The JNI core is replaced
 by a direct FFM core in `io.github.magnusp.turso.core`. There is no Hrana, no libSQL client, and
-no JNI.
+no JNI. Embedded replicas use Turso's own sync engine (`libturso_sync_sdk_kit.so`), not the legacy
+libSQL embedded-replica protocol.
 
 ## Compatibility stance
 
@@ -33,7 +34,8 @@ major `3` and minor `50`.
 ## Status
 
 This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the part
-of JDBC 4.3 that its tests exercise, not the whole API.
+of JDBC 4.3 that its tests exercise, not the whole API. Embedded replicas are supported through
+Turso's sync engine; remote-only Hrana connections are not.
 
 ## Usage
 
@@ -86,12 +88,51 @@ properties, so a database path cannot contain `?`.
 DriverManager.getConnection("jdbc:turso:/path/to/app.db?foreign_keys=on&busy_timeout=5000");
 ```
 
+### Embedded replicas
+
+A local file can be an embedded replica of a Turso sync server. Keep the local path as the
+database path and add `sync_url`:
+
+```java
+String url = "jdbc:turso:/var/lib/app.db?sync_url=http://127.0.0.1:18080";
+
+try (Connection connection = DriverManager.getConnection(url)) {
+  TursoSyncConnection sync = connection.unwrap(TursoSyncConnection.class);
+
+  try (Statement statement = connection.createStatement()) {
+    statement.execute("insert into t values ('local')");
+  }
+
+  sync.push(); // send local changes to the remote
+  sync.pull(); // fetch remote changes and rebase local changes on top
+}
+```
+
+Writes are local. `commit()` and `close()` never touch the network. `push()` sends local changes,
+`pull()` fetches remote changes and rebases local changes on top, and `sync()` runs pull then push.
+`stats()` returns `TursoSyncStats`; `checkpoint()` checkpoints the local WAL.
+
+- `sync_url` (aliases `syncUrl`, `remote_url`, `remoteUrl`): the remote URL. `libsql://` and
+  `turso://` are rewritten to `https://`.
+- `auth_token` (alias `authToken`): sent as `Authorization: Bearer <token>`.
+- `client_name` (alias `clientName`): prefix for the generated sync client id. Default `turso-jdbc`.
+- `sync_bootstrap`: `on` (default) pulls the initial state when the local file is empty. Set `off` to
+  create an empty local database and pull explicitly.
+- `sync_long_poll_timeout`: milliseconds the server may hold a pull open. Default `0`.
+
+The local path must be a file. `:memory:` and remote-only URLs are rejected with
+`SQLFeatureNotSupportedException`, so a remote endpoint cannot silently open a local file.
+
+`mvn -Psync-it verify` exercises push, pull, two replicas, offline writes, statistics, checkpoint,
+and connection failures against the compose server.
+
 ## Build and test
 
 ```sh
 mvn test                      # fast fit and smoke suite
 mvn verify                    # fast suite plus the reference conformance suite
 mvn -Pxerial-control verify   # reference probe with sqlite-jdbc 3.53.4.0
+mvn -Psync-it verify          # sync server integration tier (needs Docker)
 mvn package
 scripts/build-native.sh --check
 ```
@@ -116,7 +157,9 @@ driver, not a target for Turso.
 ### Sync server integration tier
 
 `sync-it` runs a Turso sync server from `src/sync-it/resources/compose.yaml` and a Failsafe tier
-that talks to it. The default `mvn test` and `mvn verify` never start Docker or run these tests.
+that talks to it. The tier covers server reachability, push/pull, two replicas, offline writes,
+statistics, checkpoint, and connection failures. The default `mvn test` and `mvn verify` never
+start Docker or run these tests.
 
 ```sh
 mvn -Psync-it verify
@@ -200,24 +243,28 @@ running the conformance tests from an IDE.
 
 ## Native library
 
-The jar bundles a stripped Linux x86_64 `libturso_sdk_kit.so`. Its identity is recorded next to
-the binary in
+The jar bundles two stripped Linux x86_64 libraries: `libturso_sdk_kit.so` for embedded
+databases and `libturso_sync_sdk_kit.so` for embedded replicas. Their identity is recorded next
+to the binaries in
 `src/main/resources/io/github/magnusp/turso/native/linux-x86_64/native.properties`.
-That manifest is the single source of truth for the Turso commit, `turso_sdk_kit` version, size,
-SHA-256, glibc ceiling, build image, and Rust version. Do not duplicate those values in Java, CI,
-or this README.
+That manifest is the single source of truth for the Turso commit, `turso_sdk_kit` version, both
+libraries' sizes, SHA-256s, and glibc ceilings, the build image, and the Rust version. Do not
+duplicate those values in Java, CI, or this README.
 
 The committed build requires glibc 2.35 or newer; 2.35 is the minimum supported glibc. It was
 built on Debian 12 (Bookworm, glibc 2.36) with Rust 1.88.0 and stripped with
 `strip --strip-all`. Building on a newer distribution can raise the required glibc version and
 break older runners and users.
 
-`TursoNative` loads the manifest from the classpath before it looks up the library. At class
-initialization it always compares `turso_version()` with `TURSO_SDK_KIT_VERSION`. For the
+`TursoNative` loads the manifest from the classpath before it looks up the embedded library. At
+class initialization it always compares `turso_version()` with `TURSO_SDK_KIT_VERSION`. For the
 bundled resource it also checks `SO_SIZE` and `SO_SHA256` while extracting, and deletes the
-temporary file when either differs. For `-Dturso.native.path` or `-Dturso.lib.path` it always
-checks the version, and checks size and SHA-256 only when `-Dturso.native.verifyHash=true`.
-A mismatch fails fast with the expected and actual values instead of failing later at query time.
+temporary file when either differs. `TursoSyncNative` loads `libturso_sync_sdk_kit.so` lazily on
+the first sync connection and verifies `SYNC_SO_SIZE` and `SYNC_SO_SHA256` the same way, so local
+users never extract the sync library. For `-Dturso.native.path`,
+`-Dturso.sync.native.path`, or `-Dturso.lib.path` the driver checks the version, and checks size
+and SHA-256 only when `-Dturso.native.verifyHash=true`. A mismatch fails fast with the expected
+and actual values instead of failing later at query time.
 
 ### Verifying and rebuilding
 
@@ -228,17 +275,19 @@ scripts/build-native.sh --update /path/to/turso-checkout
 scripts/build-native.sh --update --allow-glibc-bump /path/to/turso-checkout
 ```
 
-`--check` verifies the committed `.so` against the manifest without building. It prints the
-version, SHA-256, and glibc ceiling. The default build mode checks the checkout, builds into a
-staging directory, strips, and verifies the version, size, SHA-256, and highest `GLIBC_*` symbol.
-It installs the result only when it matches the manifest exactly; a non-identical build leaves
-the committed binary untouched. `--update` installs the fresh binary and atomically rewrites the
-manifest. Raising `SO_GLIBC_MAX` requires `--allow-glibc-bump`.
+`--check` verifies both committed `.so` files against the manifest without building. It prints
+each version, SHA-256, and glibc ceiling. The default build mode checks the checkout, builds both
+crates into a staging directory, strips, and verifies the version, sizes, SHA-256s, and highest
+`GLIBC_*` symbols. It installs the results only when they match the manifest exactly; a
+non-identical build leaves the committed binaries untouched. `--update` installs the fresh
+binaries and atomically rewrites the manifest. Raising either glibc ceiling requires
+`--allow-glibc-bump`.
 
 Every build requires a Turso checkout at `TURSO_COMMIT` with a clean worktree. The script builds
 from inside the checkout so Turso's `rust-toolchain.toml` is honored, and it checks the
-`sdk-kit/turso.h` hash and the Rust version from the manifest. Use a build environment with glibc
-at or below the manifest ceiling; the current pin is built on Debian 12.
+`sdk-kit/turso.h` and `sync/sdk-kit/turso_sync.h` hashes and the Rust version from the manifest.
+Use a build environment with glibc at or below the manifest ceiling; the current pin is built on
+Debian 12.
 
 To upgrade the pin:
 

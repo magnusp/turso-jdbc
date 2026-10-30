@@ -16,7 +16,8 @@ public final class TursoConnection {
 
   private final String url;
   private long connectionPtr;
-  private final TursoDB database;
+  private final @Nullable TursoDB database;
+  private final @Nullable TursoSyncDatabase syncDatabase;
   private final boolean ownsDatabase;
 
   private boolean autoCommit = true;
@@ -36,12 +37,48 @@ public final class TursoConnection {
     Boolean queryOnly = config.queryOnly();
     Long busyTimeout = config.busyTimeout();
     this.database = TursoDB.create(url, filePath);
+    this.syncDatabase = null;
     this.ownsDatabase = true;
     this.connectionPtr = this.database.connect();
     try {
       applySettings(foreignKeys, queryOnly, busyTimeout);
     } catch (SQLException e) {
       close();
+      throw e;
+    }
+  }
+
+  /**
+   * Opens an embedded replica: the local file at {@code filePath} plus the remote at {@code
+   * syncUrl}.
+   */
+  public TursoConnection(String url, String filePath, String syncUrl, Properties properties)
+      throws SQLException {
+    this.url = url;
+    TursoConfig config = new TursoConfig(properties);
+    Boolean foreignKeys = config.foreignKeys();
+    Boolean queryOnly = config.queryOnly();
+    Long busyTimeout = config.busyTimeout();
+    this.database = null;
+    this.ownsDatabase = false;
+    this.syncDatabase =
+        TursoSyncDatabase.create(
+            filePath,
+            syncUrl,
+            config.clientName(),
+            config.longPollTimeoutMs(),
+            config.bootstrapIfEmpty(),
+            config.authToken());
+    try {
+      this.connectionPtr = this.syncDatabase.connect();
+      applySettings(foreignKeys, queryOnly, busyTimeout);
+    } catch (SQLException e) {
+      long pointer = this.connectionPtr;
+      this.connectionPtr = 0;
+      if (pointer != 0) {
+        TursoNative.deinitConnection(pointer);
+      }
+      this.syncDatabase.close();
       throw e;
     }
   }
@@ -63,6 +100,7 @@ public final class TursoConnection {
   public TursoConnection(String url, TursoDB database) throws SQLException {
     this.url = url;
     this.database = database;
+    this.syncDatabase = null;
     this.ownsDatabase = false;
     this.connectionPtr = this.database.connect();
   }
@@ -101,8 +139,11 @@ public final class TursoConnection {
       long pointer = connectionPtr;
       connectionPtr = 0;
       TursoNative.deinitConnection(pointer);
-      if (ownsDatabase) {
+      if (ownsDatabase && database != null) {
         database.close();
+      }
+      if (syncDatabase != null) {
+        syncDatabase.close();
       }
     }
   }
@@ -111,8 +152,22 @@ public final class TursoConnection {
     return connectionPtr == 0;
   }
 
+  /** Returns the embedded database handle, or null for a sync connection. */
+  @Nullable
   public TursoDB getDatabase() {
     return database;
+  }
+
+  /** Returns the embedded replica, or null for a local-only connection. */
+  @Nullable
+  public TursoSyncDatabase getSyncDatabase() {
+    return syncDatabase;
+  }
+
+  /** Steps a statement, serving the sync IO queue when this is an embedded replica. */
+  public int step(long statement) throws SQLException {
+    TursoSyncDatabase sync = syncDatabase;
+    return TursoNative.step(statement, sync == null ? null : sync::processOneIo);
   }
 
   public TursoStatement prepare(String sql) throws SQLException {
