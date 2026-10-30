@@ -213,9 +213,13 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     return !nullsAreSortedAtStart();
   }
 
+  /**
+   * The name starts with {@code SQLite} so SQLite-aware tools such as Flyway recognise the
+   * database. The suffix keeps the embedded engine's identity visible.
+   */
   @Override
   public String getDatabaseProductName() {
-    return "Turso";
+    return "SQLite (Turso)";
   }
 
   @Override
@@ -223,6 +227,18 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
     try (Statement statement = connection.createStatement();
         ResultSet version = statement.executeQuery("SELECT sqlite_version()")) {
       return version.next() ? version.getString(1) : "";
+    }
+  }
+
+  private int databaseVersionComponent(int index) throws SQLException {
+    String[] parts = getDatabaseProductVersion().split("\\.");
+    if (index >= parts.length) {
+      return 0;
+    }
+    try {
+      return Integer.parseInt(parts[index]);
+    } catch (NumberFormatException e) {
+      return 0;
     }
   }
 
@@ -1427,15 +1443,13 @@ public final class JDBC4DatabaseMetaData implements DatabaseMetaData {
   }
 
   @Override
-  public int getDatabaseMajorVersion() {
-    // TODO - important
-    return 0;
+  public int getDatabaseMajorVersion() throws SQLException {
+    return databaseVersionComponent(0);
   }
 
   @Override
-  public int getDatabaseMinorVersion() {
-    // TODO - important
-    return 0;
+  public int getDatabaseMinorVersion() throws SQLException {
+    return databaseVersionComponent(1);
   }
 
   @Override

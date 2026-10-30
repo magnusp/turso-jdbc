@@ -23,6 +23,13 @@ Some metadata values still follow the reference suite because the selected tests
 as the default column size and the FLOAT mapping for NUMERIC and DECIMAL. Those are compatibility
 choices, not JDBC requirements.
 
+`DatabaseMetaData.getDatabaseProductName()` reports `SQLite (Turso)` so tools that identify
+SQLite by product name, such as Flyway, recognise the database. `getDriverName()` stays
+`turso-jdbc`, and the driver still accepts only the `jdbc:turso:` and `jdbc:libsql:file:` URL
+schemes; it does not accept `jdbc:sqlite:` URLs. `getDatabaseMajorVersion()` and
+`getDatabaseMinorVersion()` are derived from the engine's `sqlite_version()`, so `3.50.4` reports
+major `3` and minor `50`.
+
 ## Status
 
 This is a 0.1.0 prototype. It ships Linux x86_64 only and targets Java 25. It implements the part
@@ -134,7 +141,8 @@ Turso:
   modes are not applied.
 
 Before discovery, `TursoLauncherSessionListener` registers the shim and `TursoConformanceGuard`
-checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc:turso:`),
+checks the driver name (`turso-jdbc`), product name (`SQLite (Turso)`, which starts with
+`SQLite`), URL prefix (`jdbc:turso:`),
 non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes
 explicit reference-test methods. Each entry has a reason, the difference from the reference driver,
 and an issue link. The entries cover folded identifier case (#23), two experimental engine schema

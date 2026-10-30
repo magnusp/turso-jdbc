@@ -1090,6 +1090,23 @@ class DatabaseMetaDataTest {
   }
 
   @Test
+  void reportsSqliteProductIdentityAndEngineVersion(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "product-identity")) {
+      DatabaseMetaData metadata = connection.getMetaData();
+      assertThat(metadata.getDatabaseProductName()).startsWith("SQLite");
+      assertThat(metadata.getDriverName()).isEqualTo("turso-jdbc");
+
+      String[] engine = metadata.getDatabaseProductVersion().split("\\.");
+      assertThat(metadata.getDatabaseMajorVersion())
+          .isNotZero()
+          .isEqualTo(Integer.parseInt(engine[0]));
+      assertThat(metadata.getDatabaseMinorVersion())
+          .isNotZero()
+          .isEqualTo(Integer.parseInt(engine[1]));
+    }
+  }
+
+  @Test
   void identifiersReportTheFoldedStoredName(@TempDir Path dir) throws Exception {
     // The engine folds quoted names; tursodatabase/turso#11046 tracks the upstream fix.
     try (Connection connection = connect(dir, "identifier-case");
