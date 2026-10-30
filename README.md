@@ -138,7 +138,8 @@ checks the driver name (`turso-jdbc`), product name (`Turso`), URL prefix (`jdbc
 non-blank `TursoNative.version()`, and a live `sqlite_version()`. `TursoQuarantine` excludes
 explicit reference-test methods. Each entry has a reason, the difference from the reference driver,
 and an issue link. The entries cover folded identifier case (#23), two experimental engine schema
-features (#19), the deliberate stored-procedure contract (#21), and BIT read as Boolean (#20).
+features (#19), the deliberate stored-procedure contract (#21), BIT read as Boolean (#20), the
+catalog model (#36), and the engine's empty `PRAGMA compile_options` result (#76).
 `TursoQuarantineTest` rejects a blank or stale entry, and the filter is inactive in the reference
 probe. Pass
 `-Dconformance.quarantine.enabled=false` to run the quarantined methods against Turso while
@@ -257,10 +258,13 @@ provide.
 - `WITHOUT ROWID` tables and stored generated columns are rejected by this engine build. The
   driver reports both as `SQLFeatureNotSupportedException` with SQLState `0A000` instead of a
   parse error. Virtual generated columns work.
-- `Statement.executeUpdate` accepts semicolon-separated statements and returns the combined
-  affected-row count. `Statement.execute` and `executeQuery` accept one statement. A second
-  statement throws `SQLException` with SQLState `42000` before anything runs. Only whitespace,
-  semicolons, and comments may follow the first statement.
+- `Statement.executeUpdate` runs every semicolon-separated statement and returns the combined
+  affected-row count. `Statement.execute` and `executeQuery` run only the first statement and
+  ignore the rest. Semicolons inside `--` line comments or `/* */` block comments do not separate
+  statements. Comment-only, blank, and empty-statement input returns `0` from `executeUpdate`;
+  `execute` and `executeQuery` throw because there is no statement to run. `executeQuery` on a
+  statement that returns no columns runs it and then throws `SQLException` with SQLState
+  `SQLITE_DONE`, matching the reference driver.
 - The engine folds every identifier to lower case, including quoted names
   ([tursodatabase/turso#11046](https://github.com/tursodatabase/turso/issues/11046)). Metadata
   reports the canonical stored name, so a table created as `MyTable` appears as `mytable`.

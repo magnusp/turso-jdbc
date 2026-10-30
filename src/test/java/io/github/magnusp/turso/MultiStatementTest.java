@@ -25,6 +25,15 @@ class MultiStatementTest {
     }
   }
 
+  private static boolean tableExists(Statement statement, String name) throws SQLException {
+    try (ResultSet rows =
+        statement.executeQuery(
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = '" + name + "'")) {
+      rows.next();
+      return rows.getLong(1) > 0;
+    }
+  }
+
   @Test
   void executeUpdateReturnsCombinedAffectedCount(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "combined");
@@ -191,28 +200,125 @@ class MultiStatementTest {
   }
 
   @Test
-  void executeRejectsMoreThanOneStatementAndRunsNone(@TempDir Path dir) throws Exception {
-    try (Connection connection = connect(dir, "execute-reject");
+  void executeRunsOnlyTheFirstStatementAndIgnoresTheTail(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-first");
         Statement statement = connection.createStatement()) {
       statement.executeUpdate("CREATE TABLE t (v INTEGER)");
 
-      assertThatThrownBy(
-              () ->
-                  statement.execute(
-                      "INSERT INTO t (v) VALUES (1); INSERT INTO t (v) VALUES (2)"))
-          .isInstanceOfSatisfying(
-              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
-      assertThat(count(statement)).isZero();
+      assertThat(statement.execute("INSERT INTO t (v) VALUES (1); INSERT INTO t (v) VALUES (2)"))
+          .isFalse();
+      assertThat(statement.getUpdateCount()).isEqualTo(1);
+      assertThat(count(statement)).isEqualTo(1);
+
+      // A broken tail is ignored too, matching the reference driver.
+      assertThat(statement.execute("CREATE TABLE ignored (v); BOGUS")).isFalse();
+      assertThat(tableExists(statement, "ignored")).isTrue();
     }
   }
 
   @Test
-  void executeQueryRejectsMoreThanOneStatement(@TempDir Path dir) throws Exception {
-    try (Connection connection = connect(dir, "query-reject");
+  void executeQueryRunsOnlyTheFirstStatementAndIgnoresTheTail(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "query-first");
         Statement statement = connection.createStatement()) {
-      assertThatThrownBy(() -> statement.executeQuery("select 1; select 2"))
+      try (ResultSet rows = statement.executeQuery("select 1; select 2; CREATE TABLE ignored (v)")) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getInt(1)).isEqualTo(1);
+        assertThat(rows.next()).isFalse();
+      }
+      assertThat(tableExists(statement, "ignored")).isFalse();
+    }
+  }
+
+  @Test
+  void executeQueryOnDdlThrowsAfterTheStatementRuns(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "query-ddl");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.executeQuery("CREATE TABLE q (x)"))
           .isInstanceOfSatisfying(
-              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+              SQLException.class,
+              e -> {
+                assertThat(e.getMessage()).isEqualTo("query does not return ResultSet");
+                assertThat(e.getSQLState()).isEqualTo("SQLITE_DONE");
+                assertThat(e.getErrorCode()).isEqualTo(101);
+              });
+      assertThat(tableExists(statement, "q")).isTrue();
+    }
+  }
+
+  @Test
+  void commentOnlyAndBlankInputReturnZero(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "comment-only");
+        Statement statement = connection.createStatement()) {
+      assertThat(statement.executeUpdate("-- just a comment")).isZero();
+      assertThat(statement.executeUpdate("/* just a block comment */")).isZero();
+      assertThat(statement.executeUpdate("  \n\t ")).isZero();
+      assertThat(statement.executeUpdate(";;;")).isZero();
+      assertThat(statement.executeUpdate("")).isZero();
+    }
+  }
+
+  @Test
+  void semicolonsInsideCommentsDoNotSplitStatements(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "comment-semicolons");
+        Statement statement = connection.createStatement()) {
+      assertThat(statement.executeUpdate("-- a; b\nCREATE TABLE t1 (x)")).isZero();
+      assertThat(statement.executeUpdate("/* a; b */ CREATE TABLE t3 (x)")).isZero();
+
+      assertThat(tableExists(statement, "t1")).isTrue();
+      assertThat(tableExists(statement, "t3")).isTrue();
+    }
+  }
+
+  @Test
+  void migrationScriptWithSemicolonInCommentRuns(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "migration");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE notifications (id INTEGER)");
+
+      assertThat(
+              statement.executeUpdate(
+                  "-- Notification mutates through markRead()/markClicked(); without a version the\n"
+                      + "-- concurrent updates are silent last-write-wins.\n"
+                      + "ALTER TABLE notifications ADD COLUMN version INTEGER NOT NULL DEFAULT 0;"))
+          .isZero();
+
+      statement.executeUpdate("INSERT INTO notifications (id) VALUES (1)");
+      try (ResultSet rows = statement.executeQuery("SELECT version FROM notifications")) {
+        assertThat(rows.next()).isTrue();
+        assertThat(rows.getInt(1)).isZero();
+      }
+    }
+  }
+
+  @Test
+  void commentBetweenStatementsDoesNotBreakTheScript(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "comment-between");
+        Statement statement = connection.createStatement()) {
+      statement.executeUpdate("CREATE TABLE t (v TEXT)");
+
+      assertThat(
+              statement.executeUpdate(
+                  "INSERT INTO t (v) VALUES ('a'); -- gap; here\n"
+                      + "INSERT INTO t (v) VALUES ('b'); /* gap; here */"
+                      + "INSERT INTO t (v) VALUES ('c')"))
+          .isEqualTo(3);
+      assertThat(count(statement)).isEqualTo(3);
+    }
+  }
+
+  @Test
+  void executeAndExecuteQueryRejectCommentOnlyInputWithoutANativeError(@TempDir Path dir)
+      throws Exception {
+    try (Connection connection = connect(dir, "execute-comment-only");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.execute("-- only a comment"))
+          .isInstanceOfSatisfying(
+              SQLException.class,
+              e -> assertThat(e.getMessage()).doesNotContain("no statements"));
+      assertThatThrownBy(() -> statement.executeQuery("/* only a comment */"))
+          .isInstanceOfSatisfying(
+              SQLException.class,
+              e -> assertThat(e.getMessage()).doesNotContain("no statements"));
     }
   }
 
