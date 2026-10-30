@@ -200,32 +200,54 @@ class MultiStatementTest {
   }
 
   @Test
-  void executeRunsOnlyTheFirstStatementAndIgnoresTheTail(@TempDir Path dir) throws Exception {
-    try (Connection connection = connect(dir, "execute-first");
+  void executeRejectsMoreThanOneStatementAndRunsNone(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-reject");
         Statement statement = connection.createStatement()) {
       statement.executeUpdate("CREATE TABLE t (v INTEGER)");
 
-      assertThat(statement.execute("INSERT INTO t (v) VALUES (1); INSERT INTO t (v) VALUES (2)"))
-          .isFalse();
-      assertThat(statement.getUpdateCount()).isEqualTo(1);
-      assertThat(count(statement)).isEqualTo(1);
-
-      // A broken tail is ignored too, matching the reference driver.
-      assertThat(statement.execute("CREATE TABLE ignored (v); BOGUS")).isFalse();
-      assertThat(tableExists(statement, "ignored")).isTrue();
+      assertThatThrownBy(
+              () ->
+                  statement.execute(
+                      "INSERT INTO t (v) VALUES (1); INSERT INTO t (v) VALUES (2)"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+      assertThat(count(statement)).isZero();
     }
   }
 
   @Test
-  void executeQueryRunsOnlyTheFirstStatementAndIgnoresTheTail(@TempDir Path dir) throws Exception {
-    try (Connection connection = connect(dir, "query-first");
+  void executeRejectsABadSecondStatementAndRunsNothing(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-reject-bad");
         Statement statement = connection.createStatement()) {
-      try (ResultSet rows = statement.executeQuery("select 1; select 2; CREATE TABLE ignored (v)")) {
+      assertThatThrownBy(() -> statement.execute("CREATE TABLE ignored (v); BOGUS"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+      assertThat(tableExists(statement, "ignored")).isFalse();
+    }
+  }
+
+  @Test
+  void executeQueryRejectsMoreThanOneStatement(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "query-reject");
+        Statement statement = connection.createStatement()) {
+      assertThatThrownBy(() -> statement.executeQuery("select 1; select 2"))
+          .isInstanceOfSatisfying(
+              SQLException.class, e -> assertThat(e.getSQLState()).isEqualTo("42000"));
+    }
+  }
+
+  @Test
+  void executeAllowsTrailingTrivia(@TempDir Path dir) throws Exception {
+    try (Connection connection = connect(dir, "execute-trivia");
+        Statement statement = connection.createStatement()) {
+      assertThat(statement.execute("CREATE TABLE t (v); -- trailing\n ;; /* done */")).isFalse();
+      assertThat(tableExists(statement, "t")).isTrue();
+
+      try (ResultSet rows = statement.executeQuery("select 1 /* mid */ ; -- done")) {
         assertThat(rows.next()).isTrue();
         assertThat(rows.getInt(1)).isEqualTo(1);
         assertThat(rows.next()).isFalse();
       }
-      assertThat(tableExists(statement, "ignored")).isFalse();
     }
   }
 
@@ -238,8 +260,8 @@ class MultiStatementTest {
               SQLException.class,
               e -> {
                 assertThat(e.getMessage()).isEqualTo("query does not return ResultSet");
-                assertThat(e.getSQLState()).isEqualTo("SQLITE_DONE");
-                assertThat(e.getErrorCode()).isEqualTo(101);
+                assertThat(e.getSQLState()).isEqualTo("HY000");
+                assertThat(e.getErrorCode()).isEqualTo(0);
               });
       assertThat(tableExists(statement, "q")).isTrue();
     }
@@ -307,18 +329,27 @@ class MultiStatementTest {
   }
 
   @Test
-  void executeAndExecuteQueryRejectCommentOnlyInputWithoutANativeError(@TempDir Path dir)
-      throws Exception {
+  void executeAndExecuteQueryRejectCommentOnlyInput(@TempDir Path dir) throws Exception {
     try (Connection connection = connect(dir, "execute-comment-only");
         Statement statement = connection.createStatement()) {
-      assertThatThrownBy(() -> statement.execute("-- only a comment"))
-          .isInstanceOfSatisfying(
-              SQLException.class,
-              e -> assertThat(e.getMessage()).doesNotContain("no statements"));
-      assertThatThrownBy(() -> statement.executeQuery("/* only a comment */"))
-          .isInstanceOfSatisfying(
-              SQLException.class,
-              e -> assertThat(e.getMessage()).doesNotContain("no statements"));
+      for (String sql : new String[] {"-- comment", "/* comment */", "", "  \n\t ", ";;;"}) {
+        assertThatThrownBy(() -> statement.execute(sql))
+            .isInstanceOfSatisfying(
+                SQLException.class,
+                e -> {
+                  assertThat(e.getMessage())
+                      .isEqualTo("The supplied SQL string contains no statements");
+                  assertThat(e.getSQLState()).isEqualTo("42000");
+                });
+        assertThatThrownBy(() -> statement.executeQuery(sql))
+            .isInstanceOfSatisfying(
+                SQLException.class,
+                e -> {
+                  assertThat(e.getMessage())
+                      .isEqualTo("The supplied SQL string contains no statements");
+                  assertThat(e.getSQLState()).isEqualTo("42000");
+                });
+      }
     }
   }
 

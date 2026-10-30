@@ -30,7 +30,7 @@ public final class TursoStatement implements AutoCloseable {
 
   public boolean execute() throws SQLException {
     // Decide from the prepared statement metadata so the first row is left for the result set.
-    return TursoNative.columnCount(openStatementPointer()) > 0;
+    return columnCount() > 0;
   }
 
   synchronized TursoStepResult step() throws SQLException {
