@@ -166,7 +166,14 @@ public final class TursoConfig {
     if (value == null) {
       return 0L;
     }
-    return nonNegative(value, LONG_POLL_KEYS[0]);
+    long millis = nonNegative(value, LONG_POLL_KEYS[0]);
+    if (millis > Integer.MAX_VALUE) {
+      throw invalid(
+          LONG_POLL_KEYS[0],
+          value,
+          "a non-negative number of milliseconds that fits in 32 bits");
+    }
+    return millis;
   }
 
   @Nullable
