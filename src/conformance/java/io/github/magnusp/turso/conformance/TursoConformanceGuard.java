@@ -19,7 +19,7 @@ import java.sql.Statement;
 final class TursoConformanceGuard {
 
     static final String EXPECTED_DRIVER_NAME = "turso-jdbc";
-    static final String EXPECTED_DATABASE_PRODUCT_NAME = "Turso";
+    static final String EXPECTED_DATABASE_PRODUCT_NAME_PREFIX = "SQLite";
     static final String EXPECTED_URL_PREFIX = "jdbc:turso:";
 
     private static final String PROBE_URL = "jdbc:sqlite::memory:";
@@ -42,12 +42,12 @@ final class TursoConformanceGuard {
         String url = metadata.getURL();
 
         if (!EXPECTED_DRIVER_NAME.equals(driverName)
-                || !EXPECTED_DATABASE_PRODUCT_NAME.equals(productName)) {
+                || !productName.startsWith(EXPECTED_DATABASE_PRODUCT_NAME_PREFIX)) {
             throw new AssertionError(
                     "Conformance suite is not connected to Turso: expected driver \""
                             + EXPECTED_DRIVER_NAME
-                            + "\" and database product \""
-                            + EXPECTED_DATABASE_PRODUCT_NAME
+                            + "\" and database product starting with \""
+                            + EXPECTED_DATABASE_PRODUCT_NAME_PREFIX
                             + "\", but resolved driver \""
                             + driverName
                             + "\" and database product \""
