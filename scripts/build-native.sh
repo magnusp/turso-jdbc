@@ -313,8 +313,12 @@ build_and_install() {
   verify_toolchain "$checkout"
 
   echo "building turso_sdk_kit and turso_sync_sdk_kit from $checkout at $TURSO_COMMIT"
-  local target_dir="${CARGO_TARGET_DIR:-$checkout/target}"
-  [[ "$target_dir" == /* ]] || target_dir="$checkout/$target_dir"
+  local target_dir="${CARGO_TARGET_DIR:-}"
+  if [[ -z "$target_dir" ]]; then
+    target_dir="$checkout/target"
+  elif [[ "$target_dir" != /* ]]; then
+    target_dir="$checkout/$target_dir"
+  fi
   (cd "$checkout" && cargo build -p turso_sdk_kit -p turso_sync_sdk_kit --release)
 
   local built="$target_dir/release/$SO_FILE"
