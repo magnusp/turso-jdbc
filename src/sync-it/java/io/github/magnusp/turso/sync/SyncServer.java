@@ -121,6 +121,23 @@ public final class SyncServer implements AutoCloseable {
     return post(path, body);
   }
 
+  /** Polls the pipeline endpoint until the server answers or the timeout expires. */
+  public void awaitHealthy(Duration timeout) throws IOException, InterruptedException {
+    long deadline = System.nanoTime() + timeout.toNanos();
+    IOException last = null;
+    while (System.nanoTime() < deadline) {
+      try {
+        if (execute(null, "select 1").statusCode() == 200) {
+          return;
+        }
+      } catch (IOException e) {
+        last = e;
+      }
+      Thread.sleep(100);
+    }
+    throw new IOException("Sync server at " + url + " did not become healthy", last);
+  }
+
   /** Stops the service container without removing its volume. */
   public void stopService() {
     ContainerState state = service();

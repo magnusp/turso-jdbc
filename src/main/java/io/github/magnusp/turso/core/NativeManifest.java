@@ -23,10 +23,16 @@ import java.util.regex.Pattern;
  * @param soSize the expected library size in bytes
  * @param soSha256 the expected lower-case SHA-256 of the library
  * @param soGlibcMax the highest glibc symbol version the library requires
- * @param buildImage the container image or distribution the library was built on
+ * @param syncSoFile the bundled sync library file name
+ * @param syncSoSize the expected sync library size in bytes
+ * @param syncSoSha256 the expected lower-case SHA-256 of the sync library
+ * @param syncSoGlibcMax the highest glibc symbol version the sync library requires
+ * @param buildImage the container image or distribution the libraries were built on
  * @param buildGlibc the glibc version of the build environment
  * @param rustVersion the Rust compiler version used for the build
  * @param tursoHeaderSha256 the SHA-256 of {@code sdk-kit/turso.h} at {@code tursoCommit}
+ * @param tursoSyncHeaderSha256 the SHA-256 of {@code sync/sdk-kit/turso_sync.h} at {@code
+ *     tursoCommit}
  */
 record NativeManifest(
     String platform,
@@ -36,13 +42,18 @@ record NativeManifest(
     long soSize,
     String soSha256,
     String soGlibcMax,
+    String syncSoFile,
+    long syncSoSize,
+    String syncSoSha256,
+    String syncSoGlibcMax,
     String buildImage,
     String buildGlibc,
     String rustVersion,
-    String tursoHeaderSha256) {
+    String tursoHeaderSha256,
+    String tursoSyncHeaderSha256) {
 
-  static final String RESOURCE_PATH =
-      "/io/github/magnusp/turso/native/linux-x86_64/native.properties";
+  static final String NATIVE_DIR = "/io/github/magnusp/turso/native/linux-x86_64";
+  static final String RESOURCE_PATH = NATIVE_DIR + "/native.properties";
 
   private static final List<String> REQUIRED_KEYS =
       List.of(
@@ -53,10 +64,15 @@ record NativeManifest(
           "SO_SIZE",
           "SO_SHA256",
           "SO_GLIBC_MAX",
+          "SYNC_SO_FILE",
+          "SYNC_SO_SIZE",
+          "SYNC_SO_SHA256",
+          "SYNC_SO_GLIBC_MAX",
           "BUILD_IMAGE",
           "BUILD_GLIBC",
           "RUST_VERSION",
-          "TURSO_HEADER_SHA256");
+          "TURSO_HEADER_SHA256",
+          "TURSO_SYNC_HEADER_SHA256");
 
   private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
   private static final Pattern COMMIT = Pattern.compile("[0-9a-f]{40}");
@@ -92,10 +108,15 @@ record NativeManifest(
     String soSize = value(properties, "SO_SIZE");
     String soSha256 = value(properties, "SO_SHA256");
     String soGlibcMax = value(properties, "SO_GLIBC_MAX");
+    String syncSoFile = value(properties, "SYNC_SO_FILE");
+    String syncSoSize = value(properties, "SYNC_SO_SIZE");
+    String syncSoSha256 = value(properties, "SYNC_SO_SHA256");
+    String syncSoGlibcMax = value(properties, "SYNC_SO_GLIBC_MAX");
     String buildImage = value(properties, "BUILD_IMAGE");
     String buildGlibc = value(properties, "BUILD_GLIBC");
     String rustVersion = value(properties, "RUST_VERSION");
     String headerSha256 = value(properties, "TURSO_HEADER_SHA256");
+    String syncHeaderSha256 = value(properties, "TURSO_SYNC_HEADER_SHA256");
 
     if (!COMMIT.matcher(tursoCommit).matches()) {
       throw malformed("TURSO_COMMIT must be a 40-character lower-case git SHA-1");
@@ -103,28 +124,29 @@ record NativeManifest(
     if (!SHA256.matcher(soSha256).matches()) {
       throw malformed("SO_SHA256 must be a lower-case SHA-256 hex digest");
     }
+    if (!SHA256.matcher(syncSoSha256).matches()) {
+      throw malformed("SYNC_SO_SHA256 must be a lower-case SHA-256 hex digest");
+    }
     if (!SHA256.matcher(headerSha256).matches()) {
       throw malformed("TURSO_HEADER_SHA256 must be a lower-case SHA-256 hex digest");
+    }
+    if (!SHA256.matcher(syncHeaderSha256).matches()) {
+      throw malformed("TURSO_SYNC_HEADER_SHA256 must be a lower-case SHA-256 hex digest");
     }
     if (!GLIBC.matcher(soGlibcMax).matches()) {
       throw malformed("SO_GLIBC_MAX must look like 2.35");
     }
+    if (!GLIBC.matcher(syncSoGlibcMax).matches()) {
+      throw malformed("SYNC_SO_GLIBC_MAX must look like 2.35");
+    }
     if (!GLIBC.matcher(buildGlibc).matches()) {
       throw malformed("BUILD_GLIBC must look like 2.36");
     }
-    if (soFile.contains("/") || soFile.contains("\\") || soFile.equals(".") || soFile.equals("..")) {
-      throw malformed("SO_FILE must be a plain file name");
-    }
+    checkPlainFileName(soFile, "SO_FILE");
+    checkPlainFileName(syncSoFile, "SYNC_SO_FILE");
 
-    long size;
-    try {
-      size = Long.parseLong(soSize);
-    } catch (NumberFormatException e) {
-      throw malformed("SO_SIZE must be a byte count");
-    }
-    if (size <= 0) {
-      throw malformed("SO_SIZE must be positive");
-    }
+    long size = byteCount(soSize, "SO_SIZE");
+    long syncSize = byteCount(syncSoSize, "SYNC_SO_SIZE");
 
     return new NativeManifest(
         platform,
@@ -134,10 +156,34 @@ record NativeManifest(
         size,
         soSha256,
         soGlibcMax,
+        syncSoFile,
+        syncSize,
+        syncSoSha256,
+        syncSoGlibcMax,
         buildImage,
         buildGlibc,
         rustVersion,
-        headerSha256);
+        headerSha256,
+        syncHeaderSha256);
+  }
+
+  private static void checkPlainFileName(String file, String key) {
+    if (file.contains("/") || file.contains("\\") || file.equals(".") || file.equals("..")) {
+      throw malformed(key + " must be a plain file name");
+    }
+  }
+
+  private static long byteCount(String value, String key) {
+    long size;
+    try {
+      size = Long.parseLong(value);
+    } catch (NumberFormatException e) {
+      throw malformed(key + " must be a byte count");
+    }
+    if (size <= 0) {
+      throw malformed(key + " must be positive");
+    }
+    return size;
   }
 
   private static String value(Properties properties, String key) {

@@ -142,10 +142,19 @@ class ConnectionPropertiesTest {
 
     assertThat(info)
         .extracting(p -> p.name)
-        .containsExactly("foreign_keys", "query_only", "busy_timeout");
+        .containsExactly(
+            "foreign_keys",
+            "query_only",
+            "busy_timeout",
+            "sync_url",
+            "auth_token",
+            "client_name",
+            "sync_bootstrap",
+            "sync_long_poll_timeout");
     assertThat(info[0].choices).containsExactly("on", "off");
     assertThat(info[1].choices).containsExactly("on", "off");
     assertThat(info[2].choices).isNull();
     assertThat(info[2].description).isNotBlank();
+    assertThat(info[6].choices).containsExactly("on", "off");
   }
 }

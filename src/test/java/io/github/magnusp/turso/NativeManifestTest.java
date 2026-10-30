@@ -11,13 +11,15 @@ import java.util.HexFormat;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 
-/** Checks the bundled native library against the manifest that shipped with it. */
+/** Checks the bundled native libraries against the manifest that shipped with them. */
 class NativeManifestTest {
 
   private static final String MANIFEST =
       "/io/github/magnusp/turso/native/linux-x86_64/native.properties";
   private static final String LIBRARY =
       "/io/github/magnusp/turso/native/linux-x86_64/libturso_sdk_kit.so";
+  private static final String SYNC_LIBRARY =
+      "/io/github/magnusp/turso/native/linux-x86_64/libturso_sync_sdk_kit.so";
 
   @Test
   void versionMatchesManifest() throws Exception {
@@ -26,22 +28,12 @@ class NativeManifestTest {
 
   @Test
   void bundledLibraryMatchesManifestSizeAndHash() throws Exception {
-    Properties manifest = manifest();
-    MessageDigest digest = MessageDigest.getInstance("SHA-256");
-    long size = 0;
-    try (InputStream input = NativeManifestTest.class.getResourceAsStream(LIBRARY)) {
-      assertThat(input).as("bundled native library resource").isNotNull();
-      byte[] buffer = new byte[64 * 1024];
-      int read;
-      while ((read = input.read(buffer)) != -1) {
-        digest.update(buffer, 0, read);
-        size += read;
-      }
-    }
+    assertLibrary(LIBRARY, "SO_SIZE", "SO_SHA256");
+  }
 
-    assertThat(size).isEqualTo(Long.parseLong(manifest.getProperty("SO_SIZE")));
-    assertThat(HexFormat.of().formatHex(digest.digest()))
-        .isEqualTo(manifest.getProperty("SO_SHA256"));
+  @Test
+  void bundledSyncLibraryMatchesManifestSizeAndHash() throws Exception {
+    assertLibrary(SYNC_LIBRARY, "SYNC_SO_SIZE", "SYNC_SO_SHA256");
   }
 
   @Test
@@ -53,6 +45,25 @@ class NativeManifestTest {
     assertThat(dockerfile)
         .as("sync server image must speak the protocol of the bundled client")
         .contains("@tursodatabase/cli-linux-x64-gnu@" + version);
+  }
+
+  private static void assertLibrary(String resource, String sizeKey, String hashKey)
+      throws Exception {
+    Properties manifest = manifest();
+    MessageDigest digest = MessageDigest.getInstance("SHA-256");
+    long size = 0;
+    try (InputStream input = NativeManifestTest.class.getResourceAsStream(resource)) {
+      assertThat(input).as("bundled native library %s", resource).isNotNull();
+      byte[] buffer = new byte[64 * 1024];
+      int read;
+      while ((read = input.read(buffer)) != -1) {
+        digest.update(buffer, 0, read);
+        size += read;
+      }
+    }
+
+    assertThat(size).isEqualTo(Long.parseLong(manifest.getProperty(sizeKey)));
+    assertThat(HexFormat.of().formatHex(digest.digest())).isEqualTo(manifest.getProperty(hashKey));
   }
 
   private static Properties manifest() throws Exception {

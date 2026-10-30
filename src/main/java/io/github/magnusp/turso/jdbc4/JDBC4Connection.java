@@ -14,7 +14,7 @@ import io.github.magnusp.turso.core.TursoResultSet;
 import io.github.magnusp.turso.core.TursoStatement;
 
 /** JDBC 4 Connection implementation for Turso databases. */
-public final class JDBC4Connection implements Connection {
+public class JDBC4Connection implements Connection {
 
   static final List<String> CATALOGS = List.of("main", "temp");
 
@@ -46,6 +46,11 @@ public final class JDBC4Connection implements Connection {
    */
   public JDBC4Connection(String url, String filePath, Properties properties) throws SQLException {
     this.connection = new TursoConnection(url, filePath, properties);
+  }
+
+  /** Wraps an already opened core connection. Used by the embedded-replica subclass. */
+  protected JDBC4Connection(TursoConnection connection) {
+    this.connection = connection;
   }
 
   /**

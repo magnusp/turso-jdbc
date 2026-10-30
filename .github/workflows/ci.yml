@@ -46,6 +46,8 @@ jobs:
             -d '{"requests":[{"type":"execute","stmt":{"sql":"select 1"}}]}'
       - name: Run the sync integration tier
         run: mvn -B verify -Psync-it -Dturso.sync.url=http://127.0.0.1:18080
+      - name: Run the sync tier with a harness-owned stack
+        run: mvn -B verify -Psync-it
       - name: Stop the Turso sync server
         if: always()
         run: docker compose -f src/sync-it/resources/compose.yaml down -v
